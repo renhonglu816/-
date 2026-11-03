@@ -1,0 +1,254 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: light;
+  color: #1F2937;
+  
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 动态渐变背景 */
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 25%, #f093fb 50%, #f5576c 75%, #4facfe 100%);
+  background-size: 400% 400%;
+  animation: gradientShift 15s ease infinite;
+  /* 防止移动端双击缩放和橡皮筋效果 */
+  touch-action: pan-x pan-y;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+@keyframes gradientShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+}
+
+/* 毛玻璃效果 */
+.glass {
+  background: rgba(255, 255, 255, 0.5) !important;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+}
+
+/* 全息弥散光晕容器 */
+.ambient-glow {
+  position: relative;
+}
+
+.ambient-glow::before {
+  content: '';
+  position: absolute;
+  inset: -30%;
+  background: radial-gradient(circle, rgba(78, 205, 196, 0.35) 0%, transparent 70%);
+  filter: blur(80px);
+  z-index: -1;
+  animation: glowPulse 3s ease-in-out infinite;
+}
+
+@keyframes glowPulse {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 0.9; transform: scale(1.08); }
+}
+
+/* 粉色弥散光晕 */
+.pink-glow::before {
+  background: radial-gradient(circle, rgba(255, 107, 107, 0.35) 0%, transparent 70%);
+}
+
+/* 紫色弥散光晕 */
+.purple-glow::before {
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.35) 0%, transparent 70%);
+}
+
+/* 蓝色弥散光晕 */
+.blue-glow::before {
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.35) 0%, transparent 70%);
+}
+
+/* SOS赛博呼吸灯效果 */
+.sos-neon {
+  background: linear-gradient(135deg, #ff0844 0%, #ff4d7d 50%, #ffb199 100%) !important;
+  animation: neonPulse 2s ease-in-out infinite;
+}
+
+@keyframes neonPulse {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(255, 8, 68, 0.6),
+                0 0 40px rgba(255, 8, 68, 0.4),
+                0 0 60px rgba(255, 8, 68, 0.2),
+                0 0 80px rgba(255, 8, 68, 0.1);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(255, 8, 68, 0.8),
+                0 0 60px rgba(255, 8, 68, 0.6),
+                0 0 90px rgba(255, 8, 68, 0.4),
+                0 0 120px rgba(255, 8, 68, 0.2);
+  }
+}
+
+/* 移动端基础样式 */
+@media (max-width: 768px) {
+  body {
+    font-size: 16px;
+  }
+}
+
+/* 适老化样式增强 - 响应式 - 3D立体游戏化按钮 */
+.elderly-button {
+  @apply w-full max-w-md h-24 rounded-3xl text-xxxl font-bold flex items-center justify-center transition-all duration-100 min-h-[64px] relative overflow-hidden;
+  box-shadow: 0 12px 0 rgba(0, 0, 0, 0.25), 
+              0 16px 25px rgba(0, 0, 0, 0.15),
+              inset 0 -5px 0 rgba(0, 0, 0, 0.15),
+              inset 0 5px 0 rgba(255, 255, 255, 0.4);
+  transform: translateY(-3px);
+}
+
+.elderly-button::before {
+  content: '';
+  @apply absolute inset-0 rounded-3xl;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.4) 0%, rgba(255, 255, 255, 0) 60%);
+  pointer-events: none;
+}
+
+.elderly-button:hover {
+  @apply transform;
+  transform: translateY(-5px) scale(1.03);
+  box-shadow: 0 16px 0 rgba(0, 0, 0, 0.25), 
+              0 20px 35px rgba(0, 0, 0, 0.2),
+              inset 0 -5px 0 rgba(0, 0, 0, 0.15),
+              inset 0 5px 0 rgba(255, 255, 255, 0.4);
+}
+
+.elderly-button:active {
+  @apply transform;
+  transform: translateY(6px) scale(0.97);
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.3), 
+              0 5px 8px rgba(0, 0, 0, 0.15),
+              inset 0 -1px 0 rgba(0, 0, 0, 0.2),
+              inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  transition-duration: 50ms;
+}
+
+.elderly-text {
+  @apply text-xxl font-medium;
+}
+
+.elderly-title {
+  @apply text-xxxxl font-bold;
+}
+
+/* 移动端响应式调整 */
+@media (max-width: 768px) {
+  .elderly-button {
+    @apply h-20 text-xxl;
+  }
+  
+  .elderly-text {
+    @apply text-xl;
+  }
+  
+  .elderly-title {
+    @apply text-3xl;
+  }
+}
+
+/* 小屏设备进一步优化 */
+@media (max-width: 480px) {
+  .elderly-button {
+    @apply h-16 text-xl;
+  }
+  
+  .elderly-text {
+    @apply text-lg;
+  }
+  
+  .elderly-title {
+    @apply text-2xl;
+  }
+}
+
+/* 确保所有交互元素的点击区域不小于44×44像素 */
+button, input, select, textarea, a {
+  min-height: 44px;
+  min-width: 44px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 响应式字体大小 */
+@media (max-width: 480px) {
+  :root {
+    font-size: 14px;
+  }
+}
+
+/* 横屏适配 */
+@media (orientation: landscape) and (max-height: 500px) {
+  .elderly-button {
+    @apply h-16 text-xl;
+  }
+  
+  .elderly-text {
+    @apply text-lg;
+  }
+  
+  .elderly-title {
+    @apply text-2xl;
+  }
+}
+
+/* 移动端专用优化 */
+@media (hover: none) {
+  /* 移除悬停效果，避免误触 */
+  .elderly-button:hover {
+    @apply transform-none;
+  }
+  
+  /* 增大触摸反馈区域 */
+  button:active {
+    @apply opacity-75;
+  }
+}
+
+/* 防止移动端文本选择干扰交互 */
+.no-select {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 优化滚动体验 */
+.overflow-y-auto {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 移动端输入框优化 */
+@media (max-width: 480px) {
+  input[type="text"],
+  input[type="password"],
+  input[type="time"],
+  select,
+  textarea {
+    font-size: 16px !important; /* 防止 iOS 缩放 */
+  }
+}
