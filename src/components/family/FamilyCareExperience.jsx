@@ -10,6 +10,7 @@ import XiaoNuan from '../XiaoNuan';
 import Logo from '../Logo';
 import { DailyCheckIn, FamilyNote } from '../care/CareExperience';
 import { authAPI } from '../../services/api';
+import { brandAsset } from '../../utils/assets';
 
 const periods = [
   { label: '早晨', from: 0, to: 11 },
@@ -250,7 +251,7 @@ const FamilyCareExperience = ({
           <div className="my-page__content">
             {!mySection ? <>
               <button type="button" className="my-profile-card my-profile-card--entry" onClick={openProfileEditor} aria-label="编辑个人资料">
-                <span className="my-profile-card__avatar"><img src={profileAvatar || '/brand/default-profile-avatar.png'} alt={profileAvatar ? '我的头像' : '默认头像'} /></span>
+                <span className="my-profile-card__avatar"><img src={profileAvatar || brandAsset('default-profile-avatar.png')} alt={profileAvatar ? '我的头像' : '默认头像'} /></span>
                 <div className="my-profile-card__identity"><strong>{profileUsername || '家属'}</strong>{profileMessage && <p className="my-profile-card__message">{profileMessage}</p>}</div>
                 <ChevronRight size={24} className="my-profile-card__chevron" />
               </button>
@@ -273,7 +274,7 @@ const FamilyCareExperience = ({
       {showProfileEditor && <div className="profile-editor-page" role="dialog" aria-modal="true" aria-label="编辑资料">
         <header className="profile-editor-page__header"><button type="button" onClick={() => setShowProfileEditor(false)} aria-label="返回我的"><ArrowLeft size={25} /></button><h1>编辑资料</h1><span aria-hidden="true" /></header>
         <form className="profile-editor-page__content" onSubmit={saveProfile}>
-          <div className="profile-editor-avatar"><button type="button" onClick={() => avatarInputRef.current?.click()} aria-label="更换头像"><img src={profileAvatar || '/brand/default-profile-avatar.png'} alt="当前头像" /><span><Camera size={18} />更换头像</span></button><input ref={avatarInputRef} type="file" accept="image/*" onChange={handleAvatarUpload} hidden /></div>
+          <div className="profile-editor-avatar"><button type="button" onClick={() => avatarInputRef.current?.click()} aria-label="更换头像"><img src={profileAvatar || brandAsset('default-profile-avatar.png')} alt="当前头像" /><span><Camera size={18} />更换头像</span></button><input ref={avatarInputRef} type="file" accept="image/*" onChange={handleAvatarUpload} hidden /></div>
           <section className="profile-editor-fields" aria-label="个人资料">
             <label className="profile-editor-row"><span>用户名</span><input value={usernameDraft} onChange={event => setUsernameDraft(event.target.value.slice(0, 20))} placeholder="请输入用户名" /></label>
             <div className="profile-editor-row is-readonly"><span>账号ID</span><strong>{user.id || user.childId || user.child_id || '—'}</strong></div>

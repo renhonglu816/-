@@ -1,4 +1,5 @@
 import React from 'react';
+import { brandAsset } from '../utils/assets';
 
 const poses = {
   smile: ['emotions', 1, 0], wink: ['emotions', 2, 0], surprise: ['emotions', 3, 0],
@@ -15,7 +16,7 @@ const XiaoNuan = ({ size = 'small', pose = 'smile', className = '' }) => {
   return (
     <span
       className={`xiaonuan xiaonuan--${size} xiaonuan--pose-${pose} ${className}`}
-      style={{ backgroundImage: `url('/brand/yaoxiaonuan-${sheet}.png')`, backgroundPosition: `${column * 25}% ${row * 83.333}%` }}
+      style={{ backgroundImage: `url('${brandAsset(`yaoxiaonuan-${sheet}.png`)}')`, backgroundPosition: `${column * 25}% ${row * 83.333}%` }}
       role="img"
       aria-label="药小暖"
     />

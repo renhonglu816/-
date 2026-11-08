@@ -3,6 +3,7 @@ import { ArrowLeft, Camera, ChevronRight, Menu, MessageSquarePlus, Mic, MicOff, 
 import { requestAICompletion } from '../../services/ai';
 import MedicineScanner from './MedicineScanner';
 import XiaoNuan from '../XiaoNuan';
+import { brandAsset } from '../../utils/assets';
 
 const suggestions = ['这几种药能一起吃吗？', '忘记吃药该怎么办？', '用药期间要注意什么？'];
 const emptyMessages = [];
@@ -257,10 +258,10 @@ const AIMedicationAdvisor = ({ isOpen, onClose, currentMedications = [], pageMod
               {hasConversation ? (
                 <><h2 className="advisor-page__chat-title">问小暖</h2><p>您的用药小助手</p></>
               ) : (
-                <><h2><span className="advisor-page__intro">您好，我是</span><span className="advisor-page__mascot-name"><img src="/brand/yaoxiaonuan-wordmark.png" alt="药小暖" /></span></h2><p>陪您认药、查药，有疑问随时问我</p></>
+                <><h2><span className="advisor-page__intro">您好，我是</span><span className="advisor-page__mascot-name"><img src={brandAsset('yaoxiaonuan-wordmark.png')} alt="药小暖" /></span></h2><p>陪您认药、查药，有疑问随时问我</p></>
               )}
             </div>
-            <button type="button" className="advisor-page__mascot-button" onClick={replayMascot} disabled={reduceMotion || mascotVideoFailed} aria-label={reduceMotion || mascotVideoFailed ? '药小暖静态形象' : '重播药小暖动画'}>{reduceMotion || mascotVideoFailed ? <img src="/brand/yaoxiaonuan-wave-poster.jpg" alt="" /> : <video ref={mascotVideoRef} autoPlay muted playsInline preload="auto" poster="/brand/yaoxiaonuan-wave-poster.jpg" onError={() => setMascotVideoFailed(true)}><source src="/brand/yaoxiaonuan-wave.mp4" type="video/mp4" /></video>}</button>
+            <button type="button" className="advisor-page__mascot-button" onClick={replayMascot} disabled={reduceMotion || mascotVideoFailed} aria-label={reduceMotion || mascotVideoFailed ? '药小暖静态形象' : '重播药小暖动画'}>{reduceMotion || mascotVideoFailed ? <img src={brandAsset('yaoxiaonuan-wave-poster.jpg')} alt="" /> : <video ref={mascotVideoRef} autoPlay muted playsInline preload="auto" poster={brandAsset('yaoxiaonuan-wave-poster.jpg')} onError={() => setMascotVideoFailed(true)}><source src={brandAsset('yaoxiaonuan-wave.mp4')} type="video/mp4" /></video>}</button>
           </div>
           {!pageMode && <button type="button" onClick={onClose} className="advisor-page__close" aria-label="关闭问小暖"><X size={24} /></button>}
         </header>

@@ -15,6 +15,7 @@ import { ElderConnectionCard, ElderCreativeDashboard } from '../components/care/
 import { useCrossWindowSync, SYNC_EVENTS } from '../hooks/useCrossWindowSync';
 import dataAdapter from '../services/dataAdapter';
 import { authAPI } from '../services/api';
+import { brandAsset } from '../utils/assets';
 
 const ElderlyApp = ({ onLogout }) => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -934,7 +935,7 @@ const ElderlyApp = ({ onLogout }) => {
             }}
             className={`care-nav-button care-nav-button--advisor ${activeBottomTab === 'advisor' ? 'is-active' : ''}`}
           >
-            <span className="care-nav-button__icon care-nav-button__icon--advisor"><img src="/brand/yaoxiaonuan-nav-cropped.png" alt="" /></span>
+            <span className="care-nav-button__icon care-nav-button__icon--advisor"><img src={brandAsset('yaoxiaonuan-nav-cropped.png')} alt="" /></span>
             <strong>问小暖</strong>
           </button>
 
@@ -963,7 +964,7 @@ const ElderlyApp = ({ onLogout }) => {
           <main className="my-page__content">
             <button type="button" className="my-profile-card my-profile-card--entry" onClick={openProfileEditor} aria-label="编辑个人资料">
               <span className="my-profile-card__avatar">
-                <img src={profileAvatar || '/brand/default-profile-avatar.png'} alt={profileAvatar ? '我的头像' : '默认头像'} />
+                <img src={profileAvatar || brandAsset('default-profile-avatar.png')} alt={profileAvatar ? '我的头像' : '默认头像'} />
               </span>
               <div className="my-profile-card__identity">
                 <strong>{profileUsername || '未设置用户名'}</strong>
@@ -1033,7 +1034,7 @@ const ElderlyApp = ({ onLogout }) => {
           <form className="profile-editor-page__content" onSubmit={saveProfileDetails}>
             <div className="profile-editor-avatar">
               <button type="button" onClick={() => avatarInputRef.current?.click()} aria-label="更换头像">
-                <img src={profileAvatar || '/brand/default-profile-avatar.png'} alt="当前头像" />
+                <img src={profileAvatar || brandAsset('default-profile-avatar.png')} alt="当前头像" />
                 <span><Camera size={18} />更换头像</span>
               </button>
               <input ref={avatarInputRef} type="file" accept="image/*" onChange={handleAvatarUpload} hidden />
