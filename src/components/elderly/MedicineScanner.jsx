@@ -1,21 +1,19 @@
-import React, { useState, useRef } from 'react';
-import { Camera, Loader, CheckCircle, RefreshCw, Plus, Volume2, VolumeX, X, Upload, Image } from 'lucide-react';
+import React, { useState } from 'react';
+import XiaoNuan from '../XiaoNuan';
+import { ArrowLeft, Camera, CheckCircle, RefreshCw, Plus, Volume2, VolumeX, X, Image, Package } from 'lucide-react';
 import { requestAICompletion } from '../../services/ai';
 
-const MedicineScanner = ({ isOpen, onClose, onAddMedication, isLoggedIn }) => {
+const MedicineScanner = ({ isOpen, onClose, onAddMedication, onSelectMedicine, isLoggedIn, pageMode = false, backLabel = '返回今日用药' }) => {
   const [step, setStep] = useState('init');
   const [recognitionResult, setRecognitionResult] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-  const fileInputRef = useRef(null);
-  const speechSynthesisRef = useRef(null);
-  const currentTextRef = useRef(null);
 
   const speakText = (text) => {
     if ('speechSynthesis' in window) {
-      currentTextRef.current = text;
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'zh-CN';
@@ -25,7 +23,6 @@ const MedicineScanner = ({ isOpen, onClose, onAddMedication, isLoggedIn }) => {
       utterance.onend = () => setIsSpeaking(false);
       utterance.onerror = () => setIsSpeaking(false);
       
-      speechSynthesisRef.current = utterance;
       window.speechSynthesis.speak(utterance);
     }
   };
@@ -114,10 +111,12 @@ const MedicineScanner = ({ isOpen, onClose, onAddMedication, isLoggedIn }) => {
 
   const handleFileSelect = (file) => {
     if (!file || !file.type.startsWith('image/')) {
-      alert('请选择图片文件');
+      setErrorMessage('请选择药盒照片。');
       return;
     }
 
+    stopSpeaking();
+    setErrorMessage('');
     const reader = new FileReader();
     reader.onload = (e) => {
       setPreviewUrl(e.target.result);
@@ -152,37 +151,35 @@ const MedicineScanner = ({ isOpen, onClose, onAddMedication, isLoggedIn }) => {
     }
   };
 
-  const handleUploadClick = () => {
-    fileInputRef.current?.click();
-  };
-
   const recognizeMedicine = async () => {
     try {
       setErrorMessage('');
       setStep('loading');
       const result = await recognizeMedicineWithAI(previewUrl);
       setRecognitionResult(result);
+      setShowDetails(false);
       setStep('result');
-      setTimeout(() => {
-        speakText(`识别成功！药品名称：${result.name}。用法用量：${result.usage}。主要功效：${result.effect}`);
-      }, 500);
     } catch (err) {
       console.error('识别失败:', err);
-      setErrorMessage('识别服务暂时不可用，请稍后重试或咨询药师。请勿根据未确认的信息服药。');
+      setErrorMessage('识别失败，请重新拍摄或稍后重试。请勿根据未确认的信息服药。');
       setStep('preview');
     }
   };
 
   const restartScanning = () => {
+    stopSpeaking();
     setRecognitionResult(null);
     setPreviewUrl(null);
+    setShowDetails(false);
+    setErrorMessage('');
     setStep('init');
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
   };
 
   const handleAddToMedication = () => {
+    if (onSelectMedicine) {
+      onSelectMedicine(recognitionResult);
+      return;
+    }
     if (onAddMedication) {
       onAddMedication(recognitionResult, previewUrl);
     }
@@ -190,85 +187,53 @@ const MedicineScanner = ({ isOpen, onClose, onAddMedication, isLoggedIn }) => {
   };
 
   const handleClose = () => {
-    if (speechSynthesisRef.current) {
-      window.speechSynthesis.cancel();
-    }
+    stopSpeaking();
     setStep('init');
     setRecognitionResult(null);
     setPreviewUrl(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
+    setShowDetails(false);
+    setErrorMessage('');
     if (onClose) onClose();
   };
 
   if (!isOpen) return null;
+  const pageBack = pageMode && <button type="button" onClick={handleClose} className="scanner-page__back" aria-label={backLabel}><ArrowLeft size={24} /></button>;
 
   if (step === 'init') {
     return (
-      <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-2xl w-full max-w-lg mx-4 overflow-hidden">
-          <div className="bg-primary text-white p-4 flex justify-between items-center">
-            <h2 className="text-xl sm:text-2xl font-bold">上传药盒图片</h2>
-            <button onClick={handleClose} className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center">
-              <X size={24} />
-            </button>
+      <div className={pageMode ? 'feature-page' : 'scanner-modal fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4'}>
+        <div className={`${pageMode ? 'feature-page__surface' : 'bg-white rounded-2xl w-full max-w-lg mx-4 overflow-hidden'} scanner-page`}>
+          <div className="feature-page__header scanner-page__header">
+            <div>
+              {pageBack}
+              <h2>拍药盒</h2>
+            </div>
+            {!pageMode && (
+              <button onClick={handleClose} className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center">
+                <X size={24} />
+              </button>
+            )}
           </div>
 
-          <div className="p-4 sm:p-6">
-            <div className="text-center mb-4 sm:mb-6">
-              <Image className="w-16 sm:w-20 h-16 sm:h-20 text-primary mx-auto mb-3 sm:mb-4" />
-              <h3 className="text-lg sm:text-xl font-bold text-dark mb-2">识别药品信息</h3>
-              <p className="text-gray-600">上传药盒照片，AI将自动识别药品</p>
-            </div>
-
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handleFileInputChange}
-              className="hidden"
-            />
-
+          <div className="scanner-page__content scanner-page__content--capture">
             <div
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
-              onClick={handleUploadClick}
-              className={`border-2 border-dashed rounded-xl p-6 sm:p-8 text-center cursor-pointer transition ${
-                isDragging
-                  ? 'border-primary bg-orange-50'
-                  : 'border-gray-300 hover:border-primary hover:bg-orange-50'
-              }`}
+              className={`scanner-capture-stage ${isDragging ? 'is-dragging' : ''}`}
             >
-              <Upload className="w-10 sm:w-12 h-10 sm:h-12 text-gray-400 mx-auto mb-3 sm:mb-4" />
-              <p className="text-base sm:text-lg font-medium text-gray-700 mb-2">
-                点击或拖拽上传药盒图片
-              </p>
-              <p className="text-sm text-gray-500">
-                支持 JPG、PNG 格式
-              </p>
+              <span className="scanner-capture-stage__corners" aria-hidden="true" />
+              <span className="scanner-capture-stage__box" aria-hidden="true"><Package size={64} strokeWidth={1.5} /></span>
+              <strong>对准药盒正面，拍清药名</strong>
+              <div className="scanner-mascot-tip"><XiaoNuan size="small" pose="guide" /><span>请让药名完整入镜。</span></div>
             </div>
-
-            <div className="mt-4 sm:mt-6 space-y-3">
-              <div className="bg-yellow-50 rounded-xl p-3 sm:p-4">
-                <p className="text-sm text-yellow-800">
-                  <strong>温馨提示：</strong>请上传药盒正面照片，确保药名和用法清晰可见，这样识别更准确！
-                </p>
-              </div>
-              <div className="bg-orange-50 rounded-xl p-3 sm:p-4">
-                <p className="text-sm text-orange-800">
-                  <strong>隐私说明：</strong>您上传的图片仅用于药品识别，不会被存储或用于其他目的
-                </p>
-              </div>
+            {errorMessage && <p role="alert" className="scanner-error">{errorMessage}</p>}
+            <div className="scanner-page__actions scanner-page__actions--capture">
+              <label className="scanner-primary-button scanner-file-button" htmlFor="scanner-camera-input"><Camera size={23} /> 拍照</label>
+              <input id="scanner-camera-input" type="file" accept="image/*" capture="environment" onChange={handleFileInputChange} className="sr-only" />
+              <label className="scanner-secondary-button scanner-file-button" htmlFor="scanner-album-input"><Image size={22} /> 从相册选择</label>
+              <input id="scanner-album-input" type="file" accept="image/*" onChange={handleFileInputChange} className="sr-only" />
             </div>
-
-            <button
-              onClick={handleClose}
-              className="w-full py-3 mt-4 text-gray-500 text-lg min-h-[44px]"
-            >
-              返回
-            </button>
           </div>
         </div>
       </div>
@@ -277,17 +242,22 @@ const MedicineScanner = ({ isOpen, onClose, onAddMedication, isLoggedIn }) => {
 
   if (step === 'preview') {
     return (
-      <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-2xl w-full max-w-lg mx-4 overflow-hidden">
-          <div className="bg-primary text-white p-4 flex justify-between items-center">
-            <h2 className="text-xl sm:text-2xl font-bold">确认图片</h2>
-            <button onClick={handleClose} className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center">
-              <X size={24} />
-            </button>
+      <div className={pageMode ? 'feature-page' : 'scanner-modal fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4'}>
+        <div className={`${pageMode ? 'feature-page__surface' : 'bg-white rounded-2xl w-full max-w-lg mx-4 overflow-hidden'} scanner-page`}>
+          <div className="feature-page__header scanner-page__header scanner-page__header--compact">
+            <div>
+              {pageBack}
+              <h2>确认照片</h2>
+            </div>
+            {!pageMode && (
+              <button onClick={handleClose} className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center">
+                <X size={24} />
+              </button>
+            )}
           </div>
 
-          <div className="p-4 sm:p-6">
-            <div className="mb-4 sm:mb-6 rounded-xl overflow-hidden bg-gray-100">
+          <div className="scanner-page__content">
+            <div className="scanner-preview-card">
               <img
                 src={previewUrl}
                 alt="药盒预览"
@@ -295,30 +265,26 @@ const MedicineScanner = ({ isOpen, onClose, onAddMedication, isLoggedIn }) => {
               />
             </div>
 
-            <p className="text-center text-gray-600 mb-4 sm:mb-6">
-              图片已上传，确认后开始识别
-            </p>
-
             {errorMessage && (
-              <p role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">
-                {errorMessage}
+              <p role="alert" className="scanner-error">
+                <XiaoNuan size="tiny" pose="worried" /> {errorMessage}
               </p>
             )}
 
-            <div className="space-y-3">
+            <div className="scanner-page__actions">
               <button
                 onClick={recognizeMedicine}
-                className="w-full py-4 bg-primary text-white text-lg sm:text-xl font-bold rounded-xl flex items-center justify-center min-h-[44px]"
+                className="scanner-primary-button"
               >
-                <Camera className="mr-2" />
+                <CheckCircle size={22} />
                 开始识别
               </button>
 
               <button
                 onClick={restartScanning}
-                className="w-full py-3 bg-gray-100 text-gray-700 text-lg rounded-xl min-h-[44px]"
+                className="scanner-secondary-button"
               >
-                重新上传
+                重新拍
               </button>
             </div>
           </div>
@@ -329,12 +295,26 @@ const MedicineScanner = ({ isOpen, onClose, onAddMedication, isLoggedIn }) => {
 
   if (step === 'loading') {
     return (
-      <div className="fixed inset-0 bg-primary flex flex-col items-center justify-center z-50">
-        <div className="text-center text-white p-4">
-          <Loader className="w-12 sm:w-16 h-12 sm:h-16 mx-auto mb-4 sm:mb-6 animate-spin" />
-          <h2 className="text-2xl sm:text-3xl font-bold mb-3 sm:mb-4">药师正在努力识别中...</h2>
-          <p className="text-lg sm:text-xl mb-2">正在分析药盒信息</p>
-          <p className="text-white/80">请稍候...</p>
+      <div className={pageMode ? 'feature-page feature-page--loading scanner-loading flex flex-col items-center justify-center' : 'fixed inset-0 bg-primary flex flex-col items-center justify-center z-50'}>
+        <div className="scanner-loading__card" role="status" aria-live="polite">
+          <div className="scanner-loading__visual" aria-hidden="true">
+            <span className="scanner-loading__corner scanner-loading__corner--tl" />
+            <span className="scanner-loading__corner scanner-loading__corner--tr" />
+            <span className="scanner-loading__corner scanner-loading__corner--bl" />
+            <span className="scanner-loading__corner scanner-loading__corner--br" />
+            <Package size={54} strokeWidth={1.8} />
+            <span className="scanner-loading__beam" />
+          </div>
+          <div className="scanner-loading__copy">
+            <p className="scanner-loading__eyebrow">AI 智能识别</p>
+            <h2>正在识别药盒</h2>
+            <p>正在读取药名和规格，请稍候</p>
+          </div>
+          <div className="scanner-loading__progress" aria-hidden="true"><span /></div>
+          <div className="scanner-loading__companion">
+            <XiaoNuan size="small" pose="wait" />
+            <div><strong>小暖正在认真核对</strong><span>请保持页面开启，很快就好</span></div>
+          </div>
         </div>
       </div>
     );
@@ -342,78 +322,45 @@ const MedicineScanner = ({ isOpen, onClose, onAddMedication, isLoggedIn }) => {
 
   if (step === 'result' && recognitionResult) {
     return (
-      <div className="fixed inset-0 bg-light flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden mx-4">
-          <div className="bg-primary text-white p-4 flex justify-between items-center">
-            <h2 className="text-xl sm:text-2xl font-bold">识别结果</h2>
-            <button onClick={handleClose} className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center">
-              <X size={24} />
-            </button>
+      <div className={pageMode ? 'feature-page scanner-result-page' : 'scanner-modal scanner-result-page fixed inset-0 bg-light flex items-center justify-center z-50 p-4'}>
+        <div className={`${pageMode ? 'feature-page__surface' : 'bg-white rounded-2xl w-full max-w-lg overflow-hidden mx-4'} scanner-page scanner-result-page__surface`}>
+          <div className="feature-page__header scanner-page__header scanner-page__header--compact scanner-result-header">
+            <div>
+              {pageBack}
+              <div><h2>识别结果</h2><p>请核对后再添加到用药计划</p></div>
+            </div>
+            {!pageMode && (
+              <button onClick={handleClose} className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center">
+                <X size={24} />
+              </button>
+            )}
           </div>
 
-          <div className="p-4 sm:p-6">
-            <div className="text-center mb-4 sm:mb-6">
-              <CheckCircle className="w-12 sm:w-16 h-12 sm:h-16 text-green-500 mx-auto mb-3 sm:mb-4" />
-              <h3 className="text-xl sm:text-2xl font-bold">识别成功！</h3>
-            </div>
-
-            <div className="space-y-3 sm:space-y-4 mb-4 sm:mb-6">
-              <div className="bg-orange-50 p-3 sm:p-4 rounded-xl">
-                <p className="text-sm text-gray-500 mb-1">药品名称</p>
-                <p className="text-xl sm:text-2xl font-bold text-primary">{recognitionResult.name}</p>
+          <div className="scanner-page__content scanner-result-content">
+            <section className="scanner-result-hero" aria-label="识别已完成">
+              <div className="scanner-result-hero__preview">
+                {previewUrl ? <img src={previewUrl} alt="刚刚拍摄的药盒" /> : <Package size={34} />}
+                <span><CheckCircle size={17} /></span>
               </div>
-
-              <div className="bg-orange-100 p-3 sm:p-4 rounded-xl">
-                <p className="text-sm text-gray-500 mb-1">用法用量</p>
-                <p className="text-lg sm:text-xl font-bold text-dark">{recognitionResult.usage}</p>
+              <div><span>识别完成</span><strong>已读取药盒信息</strong><small>请对照实物逐项确认</small></div>
+            </section>
+            <section className="scanner-result-card" aria-label="识别出的药品信息">
+              <div className="scanner-result-card__name"><div><span>识别到的药品</span><h3>{recognitionResult.name}</h3></div><button type="button" onClick={() => {
+                if (isSpeaking) stopSpeaking();
+                else speakText(`药品名称：${recognitionResult.name}。用法用量：${recognitionResult.usage || '未识别'}。服用频率：${recognitionResult.frequency || '未识别'}。`);
+              }} aria-label={isSpeaking ? '停止语音播报' : '播报药品信息'} title={isSpeaking ? '停止播报' : '语音播报'}>{isSpeaking ? <VolumeX size={24} /> : <Volume2 size={24} />}</button></div>
+              <div className="scanner-result-card__fields">
+                <div className="scanner-result-card__field"><span>用法用量</span><strong>{recognitionResult.usage || '未识别，请查看药盒'}</strong></div>
+                <div className="scanner-result-card__field"><span>服用频率</span><strong>{recognitionResult.frequency || '未识别，请查看药盒'}</strong></div>
               </div>
+              {recognitionResult.effect && <><button type="button" className="scanner-result-card__details-toggle" onClick={() => setShowDetails(!showDetails)} aria-expanded={showDetails}>{showDetails ? '收起详细信息' : '查看详细信息'}</button>{showDetails && <div className="scanner-result-card__field"><span>主要功效</span><strong>{recognitionResult.effect}</strong></div>}</>}
+            </section>
+            <p className="scanner-result-warning"><CheckCircle size={20} /><span><strong>添加前请核对</strong>AI 识别内容仅供参考，请以药盒和医嘱为准。</span></p>
 
-              <div className="bg-orange-50 p-3 sm:p-4 rounded-xl">
-                <p className="text-sm text-gray-500 mb-1">主要功效</p>
-                <p className="text-base sm:text-lg text-dark">{recognitionResult.effect}</p>
-              </div>
+            <div className="scanner-page__actions">
+              <button onClick={handleAddToMedication} className="scanner-primary-button"><Plus size={22} />{onSelectMedicine ? '用这款药提问' : isLoggedIn ? '核对后添加用药' : '登录后添加用药'}</button>
 
-              <div className="bg-orange-100 p-3 sm:p-4 rounded-xl">
-                <p className="text-sm text-gray-500 mb-1">服用频率</p>
-                <p className="text-base sm:text-lg text-dark">{recognitionResult.frequency}</p>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between mb-4 sm:mb-6 bg-yellow-50 p-3 rounded-xl">
-              <p className="text-sm text-gray-600">{isSpeaking ? '正在播报中...' : '点击播放语音播报'}</p>
-              <button
-                onClick={() => {
-                  const text = `药品名称：${recognitionResult.name}。用法用量：${recognitionResult.usage}。主要功效：${recognitionResult.effect}。服用频率：${recognitionResult.frequency}`;
-                  if (isSpeaking) {
-                    stopSpeaking();
-                  } else {
-                    speakText(text);
-                  }
-                }}
-                className={`p-3 rounded-full min-h-[44px] min-w-[44px] flex items-center justify-center transition-all ${isSpeaking ? 'bg-red-500 text-white animate-pulse' : 'bg-primary text-white hover:bg-primary/90'}`}
-              >
-                {isSpeaking ? <VolumeX size={24} /> : <Volume2 size={24} />}
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              {isLoggedIn && (
-                <button
-                  onClick={handleAddToMedication}
-                  className="w-full py-4 bg-primary text-white text-lg sm:text-xl font-bold rounded-xl flex items-center justify-center min-h-[44px]"
-                >
-                  <Plus className="mr-2" />
-                  加入用药提醒
-                </button>
-              )}
-
-              <button
-                onClick={restartScanning}
-                className="w-full py-3 bg-gray-100 text-gray-700 text-lg rounded-xl flex items-center justify-center min-h-[44px]"
-              >
-                <RefreshCw className="mr-2" />
-                继续扫描其他药盒
-              </button>
+              <button onClick={restartScanning} className="scanner-secondary-button"><RefreshCw size={21} />重新拍摄</button>
             </div>
           </div>
         </div>

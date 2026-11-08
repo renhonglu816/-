@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import { Check, Clock, X } from 'lucide-react';
+import { Check, Clock, Pill, X } from 'lucide-react';
+import XiaoNuan from '../XiaoNuan';
 
 const MedicationReminder = ({ isOpen, onClose, medication, onConfirm, onSnooze }) => {
   const audioContextRef = useRef(null);
@@ -111,70 +112,54 @@ const MedicationReminder = ({ isOpen, onClose, medication, onConfirm, onSnooze }
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden mx-4 animate-fade-in">
-        {/* 头部 */}
-        <div className="bg-primary text-white p-6 flex justify-between items-center">
-          <h2 className="text-2xl font-bold flex items-center">
-            <Clock className="mr-3" size={28} />
-            服药提醒
-          </h2>
-          <button 
-            onClick={onClose} 
-            className="p-2 hover:bg-white/20 rounded-full min-h-[44px] min-w-[44px] flex items-center justify-center"
-          >
-            <X size={24} />
-          </button>
-        </div>
+    <div className="medication-reminder-layer">
+      <section className="medication-reminder-modal animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="medication-reminder-title">
+        <header className="medication-reminder-header">
+          <span className="medication-reminder-header__icon" aria-hidden="true"><Clock size={26} /></span>
+          <div><p>按时服药，安心每一天</p><h2 id="medication-reminder-title">服药提醒</h2></div>
+          <button type="button" onClick={onClose} aria-label="关闭服药提醒"><X size={23} /></button>
+        </header>
 
-        {/* 内容 */}
-        <div className="p-8">
-          {/* 提醒图标 */}
-          <div className="flex justify-center mb-8">
-            <div className="w-24 h-24 bg-red-100 rounded-full flex items-center justify-center animate-pulse">
-              <Clock size={48} className="text-red-500" />
-            </div>
+        <div className="medication-reminder-body">
+          <div className="medication-reminder-intro">
+            <XiaoNuan size="small" pose="guide" />
+            <div><strong>到服药时间啦</strong><span>请先核对药名和剂量</span></div>
+            <span className="medication-reminder-time"><Clock size={17} />{medication?.time || '现在'}</span>
           </div>
 
-          {/* 药品信息 */}
-          <div className="bg-gray-50 rounded-xl p-6 mb-8">
-            <div className="text-center">
-              <p className="text-gray-500 text-lg mb-2">药品名称</p>
-              <h3 className="text-2xl font-bold text-gray-900 mb-6">{medication?.name || '未知药品'}</h3>
-              
-              <p className="text-gray-500 text-lg mb-2">剂量</p>
-              <p className="text-xl font-semibold text-gray-800">{medication?.dosage || '未知剂量'}</p>
-            </div>
-          </div>
+          <section className="medication-reminder-medicine" aria-label="本次服药信息">
+            <span className="medication-reminder-medicine__icon"><Pill size={30} /></span>
+            <div><span>本次需要服用</span><h3>{medication?.name || '未知药品'}</h3></div>
+            <div className="medication-reminder-dose"><span>剂量</span><strong>{medication?.dosage || '请查看药盒'}</strong></div>
+          </section>
 
-          {/* 操作按钮 */}
-          <div className="space-y-4">
-            {/* 确认已服按钮 */}
+          <p className="medication-reminder-note">服用前请确认药盒与医嘱；如有疑问，请先咨询家人或医生。</p>
+
+          <div className="medication-reminder-actions">
             <button
               onClick={() => {
                 stopAllAudio();
                 onConfirm();
               }}
-              className="w-full py-4 bg-green-500 text-white text-xl font-bold rounded-xl flex items-center justify-center min-h-[44px] hover:bg-green-600 transition-colors"
+              className="medication-reminder-confirm"
             >
-              <Check className="mr-3" size={24} />
+              <Check size={24} />
               确认已服
             </button>
 
-            {/* 稍后提醒按钮 */}
             <button
               onClick={() => {
                 stopAllAudio();
                 onSnooze();
               }}
-              className="w-full py-4 bg-gray-200 text-gray-700 text-xl font-bold rounded-xl flex items-center justify-center min-h-[44px] hover:bg-gray-300 transition-colors"
+              className="medication-reminder-snooze"
             >
-              <Clock className="mr-3" size={24} />
-              稍后提醒
+              <Clock size={22} />
+              5分钟后提醒
             </button>
           </div>
         </div>
-      </div>
+      </section>
     </div>
   );
 };

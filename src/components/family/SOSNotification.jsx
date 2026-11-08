@@ -1,22 +1,18 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { AlertTriangle, MapPin, Phone, Clock, X, Check, ExternalLink, Pill } from 'lucide-react';
+import { AlertTriangle, MapPin, Clock, X, Check, ExternalLink, Pill } from 'lucide-react';
 import { useCrossWindowSync, SYNC_EVENTS } from '../../hooks/useCrossWindowSync';
+import dataAdapter from '../../services/dataAdapter';
 
-const SOSNotification = ({ onClose, onOpen }) => {
+const SOSNotification = ({ onClose, onOpen, onHandled, remoteAlerts = [], selectedAlertId }) => {
   const [alerts, setAlerts] = useState([]);
   const [currentAlert, setCurrentAlert] = useState(null);
   const [showDetail, setShowDetail] = useState(false);
 
   // 获取当前用户的统一函数
   const getCurrentUser = () => {
-    let currentUser = localStorage.getItem('childUsername');
-    if (!currentUser) {
-      const currentUserData = localStorage.getItem('currentUser');
-      if (currentUserData) {
-        const userData = JSON.parse(currentUserData);
-        currentUser = userData.username;
-      }
-    }
+    let currentUser = null;
+    try { currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}').username; } catch (_error) { /* 使用本地演示账号 */ }
+    if (!currentUser) currentUser = localStorage.getItem('childUsername');
     if (!currentUser) {
       currentUser = 'testchild';
     }
@@ -31,8 +27,9 @@ const SOSNotification = ({ onClose, onOpen }) => {
     const unreadAlerts = notifications.filter(n => 
       (n.type === 'sos' || n.type === 'missed') && !n.read
     );
-    setAlerts(unreadAlerts);
-  }, []);
+    const remoteIds = new Set(remoteAlerts.map(alert => String(alert.id)));
+    setAlerts([...remoteAlerts, ...unreadAlerts.filter(alert => !remoteIds.has(String(alert.id)))]);
+  }, [remoteAlerts]);
 
   // 处理跨窗口同步的SOS事件
   const handleSOSAlert = useCallback((sosAlert) => {
@@ -138,12 +135,12 @@ const SOSNotification = ({ onClose, onOpen }) => {
       window.removeEventListener('storage', handleStorageChange);
       clearInterval(interval);
     };
-  }, []);
+  }, [loadAlerts]);
 
   // 当有新通知时自动打开
   useEffect(() => {
     if (alerts.length > 0 && !currentAlert) {
-      setCurrentAlert(alerts[0]);
+      setCurrentAlert(alerts.find(item => item.id === selectedAlertId) || alerts[0]);
       setShowDetail(true);
       playAlertSound(alerts[0]);
       // 如果是SOS求助，播放响亮的警报声
@@ -154,18 +151,28 @@ const SOSNotification = ({ onClose, onOpen }) => {
     }
   }, [alerts, currentAlert, onOpen]);
 
-  const handleMarkAsRead = (alertId) => {
+  const handleMarkAsRead = async (alertId) => {
+    if (remoteAlerts.some(alert => alert.id === alertId)) {
+      try {
+        await dataAdapter.markSOSHandled(alertId);
+      } catch (error) {
+        console.error('处理紧急求助失败:', error);
+        alert('暂时无法标记为已处理，请稍后重试');
+        return;
+      }
+    }
     const currentUser = getCurrentUser();
     const notifications = JSON.parse(localStorage.getItem(`notifications_${currentUser}`) || '[]');
     const updatedNotifications = notifications.map(n => 
       n.id === alertId ? { ...n, read: true } : n
     );
     localStorage.setItem(`notifications_${currentUser}`, JSON.stringify(updatedNotifications));
+    onHandled?.(alertId);
     
     // 更新本地状态
-    const remainingAlerts = updatedNotifications.filter(n => 
+    const remainingAlerts = [...remoteAlerts.filter(n => n.id !== alertId), ...updatedNotifications.filter(n =>
       (n.type === 'sos' || n.type === 'missed') && !n.read
-    );
+    )];
     setAlerts(remainingAlerts);
     
     if (remainingAlerts.length > 0) {
@@ -177,13 +184,21 @@ const SOSNotification = ({ onClose, onOpen }) => {
     }
   };
 
-  const handleMarkAllAsRead = () => {
+  const handleMarkAllAsRead = async () => {
+    try {
+      await Promise.all(remoteAlerts.map(item => dataAdapter.markSOSHandled(item.id)));
+    } catch (error) {
+      console.error('批量处理求助失败:', error);
+      alert('部分求助尚未处理，请逐条确认');
+      return;
+    }
     const currentUser = getCurrentUser();
     const notifications = JSON.parse(localStorage.getItem(`notifications_${currentUser}`) || '[]');
     const updatedNotifications = notifications.map(n => 
       (n.type === 'sos' || n.type === 'missed') ? { ...n, read: true } : n
     );
     localStorage.setItem(`notifications_${currentUser}`, JSON.stringify(updatedNotifications));
+    alerts.forEach(item => onHandled?.(item.id));
     setAlerts([]);
     setCurrentAlert(null);
     setShowDetail(false);
@@ -343,13 +358,7 @@ const SOSNotification = ({ onClose, onOpen }) => {
               <Check size={20} className="inline mr-2" />
               {currentAlert.type === 'sos' ? '已联系，标记已处理' : '已知晓，标记已处理'}
             </button>
-            <a
-              href={`tel:${currentAlert.elderlyId}`}
-              className="flex-1 py-3 bg-green-500 text-white rounded-lg font-medium hover:bg-green-600 transition flex items-center justify-center"
-            >
-              <Phone size={20} className="inline mr-2" />
-              拨打电话
-            </a>
+            <button type="button" onClick={onClose} className="flex-1 py-3 bg-green-500 text-white rounded-lg font-medium hover:bg-green-600 transition">稍后处理</button>
           </div>
 
           {alerts.length > 1 && (

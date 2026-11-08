@@ -23,7 +23,6 @@ const authMiddleware = async (req, res, next) => {
         const parts = token.split('-');
         // parts[0]='mock', parts[1]='token', parts.slice(2,-1) 是 username（中间段），parts[last] 是 timestamp
         // 取 parts 中间部分当 username（兼容中间有 '-' 字符的情况）
-        const lastPart = parts[parts.length - 1];
         const middleParts = parts.slice(2, -1);
         const usernameFromToken = middleParts.join('-');
 

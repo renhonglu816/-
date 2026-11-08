@@ -231,161 +231,144 @@ const SOSAlert = ({ isOpen, onClose, onConfirm, elderlyInfo }) => {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/95 flex items-center justify-center z-[100] p-4">
-      <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden">
+    <div className="sos-alert-layer">
+      <section className={`sos-alert-modal ${isActivated ? 'is-sent' : 'is-pending'}`} role="dialog" aria-modal="true" aria-labelledby="sos-alert-title">
         {!isActivated ? (
           <>
-            <div className="bg-red-500 text-white p-6 text-center">
-              <AlertTriangle size={48} className="mx-auto mb-4 animate-pulse" />
-              <h2 className="text-2xl font-bold mb-2">紧急求助</h2>
-              <p className="text-red-100">将在 {countdown} 秒后自动发送求助信号</p>
-            </div>
+            <header className="sos-alert-hero">
+              <span className="sos-alert-hero__icon"><AlertTriangle size={36} /></span>
+              <div><h2 id="sos-alert-title">紧急求助</h2><p>确认后将立即通知家人与紧急联系人</p></div>
+              <strong className="sos-alert-countdown"><b>{countdown}</b><small>秒后发送</small></strong>
+            </header>
 
-            <div className="p-6 space-y-6">
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                <p className="text-yellow-800 text-center font-medium">
-                  如需取消，请点击"取消求助"按钮
-                </p>
-              </div>
+            <div className="sos-alert-body">
+              <p className="sos-alert-cancel-note">如果是误触，请在倒计时结束前取消求助。</p>
 
-              <div className="space-y-4">
-                <div className="flex items-start gap-3">
-                  <MapPin size={20} className="text-primary mt-1 flex-shrink-0" />
-                  <div>
-                    <p className="font-medium">当前位置</p>
+              <div className="sos-alert-status-list">
+                <article className="sos-alert-status-card">
+                  <span><MapPin size={23} /></span>
+                  <div><strong>当前位置</strong>
                     {location ? (
-                      <p className="text-sm text-gray-600">
-                        纬度: {location.latitude.toFixed(6)}<br />
-                        经度: {location.longitude.toFixed(6)}
-                      </p>
+                      <small>定位已获取，将随求助信息发送</small>
                     ) : locationError ? (
-                      <p className="text-sm text-red-500">{locationError}</p>
+                      <small className="is-error">暂时无法获取定位：{locationError}</small>
                     ) : (
-                      <p className="text-sm text-gray-500">正在获取位置...</p>
+                      <small>正在获取位置…</small>
                     )}
                   </div>
-                </div>
+                </article>
 
-                <div className="flex items-start gap-3">
-                  <Phone size={20} className="text-primary mt-1 flex-shrink-0" />
-                  <div>
-                    <p className="font-medium">紧急联系人</p>
+                <article className="sos-alert-status-card">
+                  <span><Phone size={23} /></span>
+                  <div><strong>通知对象</strong>
                     {emergencyContacts.length > 0 ? (
-                      <p className="text-sm text-gray-600">
-                        {emergencyContacts.map(c => c.username).join(', ')}
-                      </p>
+                      <small>{emergencyContacts.map(c => c.username).join('、')}</small>
                     ) : (
-                      <p className="text-sm text-gray-500">暂无紧急联系人</p>
+                      <small>家人与默认紧急联系人</small>
                     )}
                   </div>
-                </div>
+                </article>
               </div>
 
-              <div className="space-y-3">
+              <div className="sos-alert-voice">
                 <button
+                  type="button"
                   onClick={startRecording}
                   disabled={isRecording}
-                  className={`w-full py-4 rounded-lg font-bold flex items-center justify-center gap-2 ${
-                    isRecording 
-                      ? 'bg-red-500 text-white animate-pulse' 
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
+                  className={isRecording ? 'is-recording' : ''}
                 >
                   <Mic size={24} />
-                  {isRecording ? '正在录制语音...' : '录制紧急语音留言（可选）'}
+                  {isRecording ? '正在录制语音…' : '录制语音留言（可选）'}
                 </button>
 
                 {voiceMessage && (
-                  <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Check size={16} className="text-green-500" />
-                      <span className="text-sm text-green-700">语音留言已录制</span>
-                    </div>
+                  <div className="sos-alert-voice__ready">
+                    <span><Check size={17} />语音留言已录制</span>
                     <audio src={voiceMessage} controls className="h-8" />
                   </div>
                 )}
               </div>
 
-              <div className="flex gap-3">
+              <footer className="sos-alert-actions">
                 <button
+                  type="button"
                   onClick={handleCancelSOS}
-                  className="flex-1 py-4 bg-gray-200 text-gray-700 rounded-lg font-bold hover:bg-gray-300 transition"
+                  className="sos-alert-actions__cancel"
                 >
-                  <X size={20} className="inline mr-2" />
+                  <X size={21} />
                   取消求助
                 </button>
                 <button
+                  type="button"
                   onClick={handleActivateSOS}
-                  className="flex-1 py-4 bg-red-500 text-white rounded-lg font-bold hover:bg-red-600 transition animate-pulse"
+                  className="sos-alert-actions__send"
                 >
-                  <AlertTriangle size={20} className="inline mr-2" />
+                  <AlertTriangle size={21} />
                   立即求助
                 </button>
-              </div>
+              </footer>
             </div>
           </>
         ) : (
           <>
-            <div className="bg-red-500 text-white p-6 text-center">
-              <AlertTriangle size={64} className="mx-auto mb-4 animate-bounce" />
-              <h2 className="text-2xl font-bold mb-2">求助信号已发送！</h2>
-              <p className="text-red-100">正在通知您的家人和紧急联系人</p>
-            </div>
+            <header className="sos-alert-hero sos-alert-hero--sent">
+              <span className="sos-alert-hero__icon"><Check size={38} /></span>
+              <div><p className="sos-alert-hero__eyebrow">求助信息发送成功</p><h2 id="sos-alert-title">家人正在收到通知</h2><p>请保持手机畅通，并留在安全的位置</p></div>
+            </header>
 
-            <div className="p-6 space-y-6">
-              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                <div className="flex items-start gap-3">
-                  <MapPin size={20} className="text-red-500 mt-1 flex-shrink-0" />
-                  <div>
-                    <p className="font-medium text-red-700">您的位置已发送</p>
+            <div className="sos-alert-body">
+              <div className="sos-alert-sent-summary"><AlertTriangle size={23} /><p><strong>求助信号已发送</strong><small>系统正在联系您的家人与紧急联系人</small></p></div>
+
+              <div className="sos-alert-status-list">
+                <article className="sos-alert-status-card is-sent">
+                  <span><MapPin size={23} /></span>
+                  <div><strong>位置状态</strong>
                     {location ? (
-                      <p className="text-sm text-red-600 mt-1">
-                        纬度: {location.latitude.toFixed(6)}<br />
-                        经度: {location.longitude.toFixed(6)}
+                      <small>
+                        定位已发送
                         {getGoogleMapsUrl() && (
                           <a 
                             href={getGoogleMapsUrl()} 
                             target="_blank" 
                             rel="noopener noreferrer"
-                            className="inline-block mt-2 text-blue-600 hover:underline"
+                            className="sos-alert-map-link"
                           >
-                            在地图中查看
+                            查看地图
                           </a>
                         )}
-                      </p>
+                      </small>
                     ) : (
-                      <p className="text-sm text-red-500">正在获取位置...</p>
+                      <small>正在获取并补充定位…</small>
                     )}
                   </div>
-                </div>
+                </article>
+
+                <article className="sos-alert-status-card is-sent">
+                  <span><Phone size={23} /></span>
+                  <div><strong>已通知</strong><small>{elderlyInfo?.name || '您的家人'}{emergencyContacts.length > 0 && `、${emergencyContacts.map(c => c.username).join('、')}`}</small></div>
+                </article>
               </div>
 
               {voiceMessage && (
-                <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-                  <p className="font-medium text-orange-700 mb-2">您的语音留言</p>
+                <div className="sos-alert-sent-voice">
+                  <strong>已附上语音留言</strong>
                   <audio src={voiceMessage} controls className="w-full" />
                 </div>
               )}
 
-              <div className="bg-gray-50 rounded-lg p-4">
-                <p className="text-sm text-gray-600">
-                  <strong>已通知：</strong>
-                  {elderlyInfo?.name || '您的家人'}
-                  {emergencyContacts.length > 0 && `、${emergencyContacts.map(c => c.username).join('、')}`}
-                </p>
-              </div>
-
               <button
+                type="button"
                 onClick={handleConfirmSOS}
-                className="w-full py-4 bg-green-500 text-white rounded-lg font-bold hover:bg-green-600 transition"
+                className="sos-alert-safe-button"
               >
-                <Check size={20} className="inline mr-2" />
+                <Check size={22} />
                 我已安全，确认收到
               </button>
+              <p className="sos-alert-stay-note">如果仍处于危险中，请不要关闭此页面。</p>
             </div>
           </>
         )}
-      </div>
+      </section>
     </div>
   );
 };

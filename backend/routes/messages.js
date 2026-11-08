@@ -11,6 +11,7 @@ router.get('/', authMiddleware, async (req, res) => {
       .from('messages')
       .select('*')
       .or(`to_user_id.eq.${req.profile.id},from_user_id.eq.${req.profile.id}`)
+      .neq('type', 'care_profile')
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -49,21 +50,19 @@ router.post('/', authMiddleware, async (req, res) => {
       return res.status(404).json({ error: 'Recipient not found' });
     }
 
-    // 验证是否在同一家庭组（如果是子女发送给父母）
-    if (req.profile.role === 'child') {
-      const { data: recipientProfile, error: profileError } = await supabase
-        .from('profiles')
-        .select('family_group_id')
-        .eq('id', to_user_id)
-        .single();
+    // 双向都必须属于同一照护圈，避免通过猜测用户ID向圈外发送健康消息。
+    const { data: recipientProfile, error: profileError } = await supabase
+      .from('profiles')
+      .select('family_group_id')
+      .eq('id', to_user_id)
+      .single();
 
-      if (profileError || !recipientProfile) {
-        return res.status(404).json({ error: 'Recipient profile not found' });
-      }
+    if (profileError || !recipientProfile) {
+      return res.status(404).json({ error: 'Recipient profile not found' });
+    }
 
-      if (recipientProfile.family_group_id !== req.profile.family_group_id) {
-        return res.status(403).json({ error: 'Recipient not in the same family group' });
-      }
+    if (!req.profile.family_group_id || recipientProfile.family_group_id !== req.profile.family_group_id) {
+      return res.status(403).json({ error: 'Recipient not in the same care circle' });
     }
 
     // 创建留言

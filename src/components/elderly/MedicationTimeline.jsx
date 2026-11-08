@@ -22,38 +22,40 @@ const MedicationTimeline = ({ medications, onToggleStatus, onDelete }) => {
   });
 
   return (
-    <div className="w-full glass rounded-2xl p-4 sm:p-6">
-      <div className="space-y-4 sm:space-y-6">
+    <div className="w-full care-card">
+      <div className="space-y-3">
         {sortedMedications.map((med) => (
           <div 
             key={med.id} 
-            className={`rounded-xl overflow-hidden ${med.status === 'pending' ? 'ambient-glow pink-glow' : ''}`}
+            className={`overflow-hidden rounded-2xl border ${med.status === 'taken' ? 'border-green-200 bg-green-50/60' : med.status === 'missed' ? 'border-red-200 bg-red-50/60' : 'border-amber-200 bg-amber-50/60'}`}
           >
-            <div className="glass flex items-center flex-wrap p-3 sm:p-4">
-              <div 
-                className="w-14 h-14 sm:w-16 sm:h-16 rounded-full flex items-center justify-center mr-4 sm:mr-6 cursor-pointer min-h-[44px] min-w-[44px]"
+            <div className="flex items-center flex-wrap gap-3 p-4 sm:p-5">
+              <button
+                type="button"
+                aria-label={`更新${med.name}的服药状态`}
+                className={`w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center min-h-[56px] min-w-[56px] ${med.status === 'taken' ? 'bg-green-600 text-white' : med.status === 'missed' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}
                 onClick={() => onToggleStatus(med.id)}
               >
                 {med.status === 'taken' ? (
-                  <CheckCircle size={28} sm:size={32} className="text-secondary" />
+                  <CheckCircle size={30} />
                 ) : med.status === 'missed' ? (
-                  <AlertCircle size={28} sm:size={32} className="text-danger" />
+                  <AlertCircle size={30} />
                 ) : (
-                  <Clock size={28} sm:size={32} className="text-warning" />
+                  <Clock size={30} />
                 )}
-              </div>
+              </button>
               <div className="flex-1 min-w-0">
-                <p className="elderly-text font-bold truncate">{med.time}</p>
-                <p className="elderly-text font-semibold text-primary truncate">{med.name}</p>
+                <p className="text-2xl sm:text-3xl font-black tracking-tight">{med.time}</p>
+                <p className="text-lg sm:text-xl font-bold text-gray-900 truncate">{med.name}</p>
                 {med.dosage && (
-                  <p className="text-sm text-gray-600 mt-1">剂量：{med.dosage}</p>
+                  <p className="text-base text-gray-600 mt-1">每次 {med.dosage}</p>
                 )}
               </div>
-              <div className="flex items-center mt-2 sm:mt-0">
-                <div className={`px-4 sm:px-6 py-2 sm:py-3 rounded-full elderly-text font-medium mr-3 sm:mr-4 text-center ${
-                  med.status === 'taken' ? 'bg-green-100/60 text-secondary' :
-                  med.status === 'missed' ? 'bg-red-100/60 text-danger' :
-                  'bg-yellow-100/60 text-warning'
+              <div className="flex items-center gap-1 mt-2 sm:mt-0">
+                <div className={`px-4 py-2 rounded-full text-base font-bold mr-1 text-center ${
+                  med.status === 'taken' ? 'bg-green-100 text-green-800' :
+                  med.status === 'missed' ? 'bg-red-100 text-red-800' :
+                  'bg-amber-100 text-amber-800'
                 }`}>
                   {med.status === 'taken' ? '已服用' :
                    med.status === 'missed' ? '未服用' :
@@ -61,14 +63,15 @@ const MedicationTimeline = ({ medications, onToggleStatus, onDelete }) => {
                 </div>
                 <button 
                   onClick={() => toggleExpanded(med.id)}
-                  className="p-3 text-primary hover:bg-orange-50/60 rounded-full min-h-[44px] min-w-[44px] flex items-center justify-center mr-2"
+                  className="p-3 text-orange-700 hover:bg-white rounded-full min-h-[48px] min-w-[48px] flex items-center justify-center"
                   title="查看详情"
                 >
                   <Info size={20} sm:size={24} />
                 </button>
                 <button 
                   onClick={() => onDelete(med.id)}
-                  className="p-3 text-gray-400 hover:text-danger min-h-[44px] min-w-[44px] flex items-center justify-center"
+                  className="p-3 text-gray-500 hover:text-red-700 hover:bg-white rounded-full min-h-[48px] min-w-[48px] flex items-center justify-center"
+                  aria-label={`删除${med.name}`}
                 >
                   <Trash2 size={20} sm:size={24} />
                 </button>
@@ -76,7 +79,7 @@ const MedicationTimeline = ({ medications, onToggleStatus, onDelete }) => {
             </div>
             
             {expandedId === med.id && (
-              <div className="glass border-t border-white/30 p-4 sm:p-5">
+              <div className="border-t border-current/10 bg-white/70 p-4 sm:p-5">
                 <div className="space-y-2">
                   {med.status === 'taken' && med.takenTime && (
                     <div className="flex items-start gap-2">

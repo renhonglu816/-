@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 
-const SOSButton = ({ onTrigger }) => {
+const SOSButton = ({ onTrigger, variant = 'floating' }) => {
   const [isPressed, setIsPressed] = useState(false);
   const [pressTimer, setPressTimer] = useState(null);
 
@@ -37,7 +37,9 @@ const SOSButton = ({ onTrigger }) => {
       onMouseUp={handleTouchEnd}
       onMouseLeave={handleTouchEnd}
       onClick={handleClick}
-      className={`fixed top-20 right-4 sm:top-24 sm:right-8 w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center z-50 transition-all duration-200 sos-neon ${
+      aria-label="SOS 一键求救"
+      title="SOS 一键求救"
+      className={`${variant === 'header' ? 'sos-button sos-button--header' : 'fixed bottom-28 right-4 sm:bottom-32 sm:right-8 w-16 h-16 sm:w-20 sm:h-20'} rounded-full flex items-center justify-center z-50 transition-all duration-200 sos-neon ${
         isPressed 
           ? 'scale-110' 
           : 'hover:scale-105 active:scale-95'

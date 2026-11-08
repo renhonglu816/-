@@ -72,6 +72,18 @@ export const authAPI = {
     const userStr = localStorage.getItem('currentUser');
     return userStr ? JSON.parse(userStr) : null;
   },
+
+  async updateProfile(data) {
+    const response = await apiClient.put('/auth/profile', data);
+    if (response.success && response.data?.user) {
+      localStorage.setItem('currentUser', JSON.stringify(response.data.user));
+      if (response.data.token) {
+        localStorage.setItem('authToken', response.data.token);
+        localStorage.setItem('elderlyToken', response.data.token);
+      }
+    }
+    return response;
+  },
 };
 
 // ==================== 家庭组 API ====================
@@ -82,13 +94,29 @@ export const familyAPI = {
   },
 
   // 加入家庭组
-  async joinGroup(groupCode) {
-    return await apiClient.post('/family/join', { group_code: groupCode });
+  async joinGroup(groupCode, relationship = '家属', carePermission = 'viewer') {
+    return await apiClient.post('/family/join', {
+      group_code: groupCode,
+      relationship,
+      care_permission: carePermission
+    });
   },
 
   // 获取家庭成员
   async getMembers() {
     return await apiClient.get('/family/members');
+  },
+
+  async getMyCircle() {
+    return await apiClient.get('/family/me');
+  },
+
+  async removeMember(memberId) {
+    return await apiClient.delete(`/family/members/${memberId}`);
+  },
+
+  async updateMemberProfile(memberId, data) {
+    return await apiClient.put(`/family/members/${memberId}/profile`, data);
   },
 };
 

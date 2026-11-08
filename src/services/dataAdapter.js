@@ -268,12 +268,24 @@ const apiImpl = {
     return await familyAPI.createGroup();
   },
 
-  async joinFamilyGroup(groupCode) {
-    return await familyAPI.joinGroup(groupCode);
+  async joinFamilyGroup(groupCode, relationship, carePermission) {
+    return await familyAPI.joinGroup(groupCode, relationship, carePermission);
   },
 
   async getFamilyMembers() {
     return await familyAPI.getMembers();
+  },
+
+  async getMyCareCircle() {
+    return await familyAPI.getMyCircle();
+  },
+
+  async removeFamilyMember(memberId) {
+    return await familyAPI.removeMember(memberId);
+  },
+
+  async updateFamilyMemberProfile(memberId, data) {
+    return await familyAPI.updateMemberProfile(memberId, data);
   },
 
   // ==================== SOS API ====================

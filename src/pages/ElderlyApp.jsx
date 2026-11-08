@@ -1,18 +1,22 @@
-import React, { useState, useEffect } from 'react';
-import { Camera, Mic, Clock, Plus, X, Save, User, Lock, LogOut, Shield, Users, MessageSquare } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { ArrowLeft, Camera, ChevronRight, ClipboardList, Clock, Copy, FileText, Info, Mic, Pill, Plus, RefreshCw, X, Save, User, Lock, LogOut, Shield, Users, MessageSquare } from 'lucide-react';
 import NotificationModal from '../components/NotificationModal';
-import MedicationTimeline from '../components/elderly/MedicationTimeline';
 import MedicineScanner from '../components/elderly/MedicineScanner';
 import MedicationReminder from '../components/elderly/MedicationReminder';
 import MessageBoard from '../components/message/MessageBoard';
 import SOSButton from '../components/elderly/SOSButton';
 import SOSAlert from '../components/elderly/SOSAlert';
 import AIMedicationAdvisor from '../components/elderly/AIMedicationAdvisor';
-import MedicationBehaviorRecord from '../components/elderly/MedicationBehaviorRecord';
+import MedicationReport from '../components/family/MedicationReport';
+import RegistrationFlow from '../components/auth/RegistrationFlow';
+import XiaoNuan from '../components/XiaoNuan';
+import Logo from '../components/Logo';
+import { ElderConnectionCard, ElderCreativeDashboard } from '../components/care/CareExperience';
 import { useCrossWindowSync, SYNC_EVENTS } from '../hooks/useCrossWindowSync';
 import dataAdapter from '../services/dataAdapter';
+import { authAPI } from '../services/api';
 
-const ElderlyApp = () => {
+const ElderlyApp = ({ onLogout }) => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showRegisterModal, setShowRegisterModal] = useState(false);
@@ -21,7 +25,6 @@ const ElderlyApp = () => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [realName, setRealName] = useState('');
-  const [idCard, setIdCard] = useState('');
   const [loginError, setLoginError] = useState('');
   const [registerError, setRegisterError] = useState('');
 
@@ -34,15 +37,34 @@ const ElderlyApp = () => {
   
   // 家庭组相关
   const [showFamilyModal, setShowFamilyModal] = useState(false);
+  const [showInviteFamilyModal, setShowInviteFamilyModal] = useState(false);
   const [familyMembers, setFamilyMembers] = useState([]);
   const [invitationCode, setInvitationCode] = useState('');
   const [invitationLink, setInvitationLink] = useState('');
+  const [editingFamilyMemberId, setEditingFamilyMemberId] = useState(null);
+  const [familyMemberRemark, setFamilyMemberRemark] = useState('');
   
   // 留言功能
   const [showMessageBoard, setShowMessageBoard] = useState(false);
   const [messageUnreadCount, setMessageUnreadCount] = useState(0);
-  const currentUserId = 'parent1'; // 模拟用户ID
-  const currentChildId = 'child1'; // 模拟子女ID
+  const sessionUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+  const currentUserId = sessionUser.id || 'parent1';
+  const currentChildId = familyMembers[0]?.id || 'child1';
+  const [profileUsername, setProfileUsername] = useState(sessionUser.username || '');
+  const [usernameDraft, setUsernameDraft] = useState(sessionUser.username || '');
+  const [profileAvatar, setProfileAvatar] = useState(() => localStorage.getItem('elderlyProfileAvatar') || '');
+  const [profileMessage, setProfileMessage] = useState('');
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [showProfileEditor, setShowProfileEditor] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [profileDetails, setProfileDetails] = useState(() => {
+    try {
+      return { gender: '', birthday: '', hometown: '', residence: '', tags: '', ...JSON.parse(localStorage.getItem('elderlyProfileDetails') || '{}') };
+    } catch (_error) {
+      return { gender: '', birthday: '', hometown: '', residence: '', tags: '' };
+    }
+  });
+  const avatarInputRef = useRef(null);
   
   // SOS紧急求助功能
   const [showSOSAlert, setShowSOSAlert] = useState(false);
@@ -52,18 +74,108 @@ const ElderlyApp = () => {
   
   // 服药行为记录
   const [showBehaviorRecord, setShowBehaviorRecord] = useState(false);
+  const [showMyPage, setShowMyPage] = useState(false);
+  const [myPageSection, setMyPageSection] = useState(null);
+  const [activeBottomTab, setActiveBottomTab] = useState('medication');
 
   const { sendMessage } = useCrossWindowSync();
 
-  const generateElderlyId = () => {
-    const timestamp = Date.now().toString(36);
-    const random = Math.random().toString(36).substring(2, 8);
-    return `ELD${timestamp}${random}`.toUpperCase();
+  const openMyPage = () => {
+    const latestUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+    const latestUsername = latestUser.username || username || '未设置用户名';
+    setProfileUsername(latestUsername);
+    setUsernameDraft(latestUsername);
+    setProfileAvatar(localStorage.getItem('elderlyProfileAvatar') || '');
+    setProfileMessage('');
+    setShowProfileEditor(false);
+    setMyPageSection(null);
+    setShowVisionModal(false);
+    setShowAIMedAdvisor(false);
+    setActiveBottomTab('my');
+    setShowMyPage(true);
+  };
+
+  const handleAvatarUpload = event => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setProfileMessage('请选择图片文件');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setProfileMessage('头像图片不能超过2MB');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const avatar = String(reader.result || '');
+        localStorage.setItem('elderlyProfileAvatar', avatar);
+        setProfileAvatar(avatar);
+        setProfileMessage('头像已保存');
+      } catch (_error) {
+        setProfileMessage('头像保存失败，请选择更小的图片');
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const saveProfileUsername = async () => {
+    const nextUsername = usernameDraft.trim();
+    if (!nextUsername) {
+      setProfileMessage('用户名不能为空');
+      return false;
+    }
+    if (nextUsername === profileUsername) {
+      return true;
+    }
+    setIsSavingProfile(true);
+    setProfileMessage('');
+    try {
+      const res = await authAPI.updateProfile({ username: nextUsername });
+      if (!res.success) throw new Error(res.error || '修改失败');
+      setProfileUsername(res.data.user.username);
+      setUsernameDraft(res.data.user.username);
+      setUsername(res.data.user.username);
+      setProfileMessage('用户名已修改，下次请使用新用户名登录');
+      return true;
+    } catch (error) {
+      setProfileMessage(error.response?.data?.error || error.message || '暂时无法修改用户名');
+      return false;
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
+  const openProfileEditor = () => {
+    setUsernameDraft(profileUsername || '');
+    try {
+      setProfileDetails({ gender: '', birthday: '', hometown: '', residence: '', tags: '', ...JSON.parse(localStorage.getItem('elderlyProfileDetails') || '{}') });
+    } catch (_error) {
+      setProfileDetails({ gender: '', birthday: '', hometown: '', residence: '', tags: '' });
+    }
+    setProfileMessage('');
+    setShowProfileEditor(true);
+  };
+
+  const saveProfileDetails = async event => {
+    event.preventDefault();
+    const usernameSaved = await saveProfileUsername();
+    if (!usernameSaved) return;
+    localStorage.setItem('elderlyProfileDetails', JSON.stringify(profileDetails));
+    setProfileMessage('资料已保存');
+    setShowProfileEditor(false);
   };
 
   useEffect(() => {
     const token = localStorage.getItem('elderlyToken');
     if (token) {
+      const storedUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+      if (storedUser.id) {
+        localStorage.setItem('currentElderlyId', storedUser.id);
+        localStorage.setItem('elderlyName', storedUser.real_name || storedUser.username || '长者');
+      }
       setIsLoggedIn(true);
       // 先加载药品数据和家庭组成员，再设置showWelcome为false
       loadMedicationData();
@@ -138,7 +250,7 @@ const ElderlyApp = () => {
 
   // 检查超时未服用的药品
   useEffect(() => {
-    const checkMedicationTimeout = () => {
+    const checkMedicationTimeout = async () => {
       const now = new Date();
       const newlyMissed = [];
       
@@ -167,9 +279,14 @@ const ElderlyApp = () => {
         setMedications(updatedMedications);
         
         // 为每个刚漏服的药品触发子女端提醒
-        newlyMissed.forEach(missedMed => {
+        await Promise.all(newlyMissed.map(async missedMed => {
+          try {
+            await dataAdapter.updateMedication(missedMed.id, { status: 'missed' });
+          } catch (error) {
+            console.warn('同步逾期状态失败，稍后重试:', error);
+          }
           triggerChildReminder(missedMed);
-        });
+        }));
       }
     };
 
@@ -251,15 +368,12 @@ const ElderlyApp = () => {
       return;
     }
 
-    if (!realName || !idCard) {
-      setRegisterError('请填写完整的实名信息');
+    if (!realName.trim()) {
+      setRegisterError('请填写希望家人看到的称呼');
       return;
     }
-
-    // 身份证号格式验证
-    const idCardRegex = /^[1-9]\d{5}(19|20)\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\d{3}[\dXx]$/;
-    if (!idCardRegex.test(idCard)) {
-      setRegisterError('身份证号格式不正确，请检查后重试');
+    if (password.length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+      setRegisterError('密码至少 8 位，并同时包含字母和数字');
       return;
     }
 
@@ -268,7 +382,7 @@ const ElderlyApp = () => {
       const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001/api'}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password, real_name: realName, id_card: idCard, role: 'parent' })
+        body: JSON.stringify({ username, password, real_name: realName, role: 'parent' })
       });
       const json = await res.json();
       if (json.success && json.data) {
@@ -295,41 +409,11 @@ const ElderlyApp = () => {
     }
 
     const newElderlyId = 'ELD' + Date.now().toString().slice(-10);
-    users.push({ username, password, realName, idCard, elderlyId: newElderlyId });
+    users.push({ username, password, realName, elderlyId: newElderlyId });
     localStorage.setItem('elderlyUsers', JSON.stringify(users));
     setShowRegisterModal(false);
     setRegisterError('');
     handleLogin();
-  };
-
-  // 模拟身份验证函数（实际项目中会调用后端API）
-  const verifyIdentity = (name, idCard) => {
-    // 这里应该调用后端API进行身份验证
-    // 现在实现身份证号校验码验证
-    return validateIdCard(idCard);
-  };
-
-  // 身份证号校验函数
-  const validateIdCard = (idCard) => {
-    // 1. 验证格式
-    const idCardRegex = /^[1-9]\d{5}(19|20)\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\d{3}[\dXx]$/;
-    if (!idCardRegex.test(idCard)) {
-      return false;
-    }
-
-    // 2. 验证校验码
-    const weights = [7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2];
-    const checkCodes = ['1', '0', 'X', '9', '8', '7', '6', '5', '4', '3', '2'];
-    
-    let sum = 0;
-    for (let i = 0; i < 17; i++) {
-      sum += parseInt(idCard[i]) * weights[i];
-    }
-    
-    const checkCode = checkCodes[sum % 11];
-    const lastChar = idCard[17].toUpperCase();
-    
-    return lastChar === checkCode;
   };
 
   const handleLogout = () => {
@@ -338,8 +422,10 @@ const ElderlyApp = () => {
     localStorage.removeItem('currentElderlyId');
     localStorage.removeItem('userId');
     localStorage.removeItem('elderlyName');
+    localStorage.removeItem('currentUser');
     setIsLoggedIn(false);
     setShowWelcome(true);
+    onLogout?.();
   };
 
   const handleAddMedication = async () => {
@@ -456,20 +542,6 @@ const ElderlyApp = () => {
     }
   };
 
-  const handleDeleteMedication = async (id) => {
-    try {
-      const res = await dataAdapter.deleteMedication(id);
-      if (res.success) {
-        setMedications(prev => prev.filter(med => med.id !== id));
-      } else {
-        console.warn('后端删除失败:', res.error);
-      }
-    } catch (e) {
-      console.warn('后端删除失败，不本地删:', e);
-      // 后端失败时不本地移除，避免 UI 与 Supabase 不一致
-    }
-  };
-
   // 触发子女端提醒
   const triggerChildReminder = (missedMed) => {
     const elderlyId = localStorage.getItem('currentElderlyId');
@@ -519,33 +591,20 @@ const ElderlyApp = () => {
   };
 
   // 处理扫描药盒后的添加逻辑
-  const handleVisionAddMedication = (medInfo, imageUrl) => {
-    
-    // 检查是否是首次扫描的新药
-    const isNewMedicine = !medications.some(med => med.name === medInfo.name);
-    
+  const handleVisionAddMedication = (medInfo) => {
     if (isLoggedIn) {
-      if (isNewMedicine) {
-        // 发送复核请求给子女端
-        sendMedicationReviewRequest(medInfo, imageUrl);
-        // 显示提示信息
-        alert('药品已提交给子女复核，待子女确认后会自动加入用药计划');
-        // 关闭拍药盒弹窗
-        setShowVisionModal(false);
-      } else {
-        // 填充药品信息到newMedication
-        setNewMedication({
-          time: '',
-          name: medInfo.name,
-          usage: medInfo.usage,
-          effect: medInfo.effect,
-          frequency: medInfo.frequency
-        });
-        // 关闭拍药盒弹窗
-        setShowVisionModal(false);
-        // 打开添加用药模态框，让用户选择时间
-        setShowAddMedicationModal(true);
-      }
+      // 识别结果由长者本人核对时间与剂量，保存后直接加入用药计划。
+      setNewMedication({
+        time: '',
+        name: medInfo.name,
+        dosage: medInfo.dosage || '',
+        usage: medInfo.usage || '',
+        effect: medInfo.effect || '',
+        frequency: medInfo.frequency || ''
+      });
+      setShowVisionModal(false);
+      setActiveBottomTab('medication');
+      setShowAddMedicationModal(true);
     } else {
       // 未登录状态，弹出登录弹窗
       setShowWelcome(false);
@@ -553,61 +612,78 @@ const ElderlyApp = () => {
     }
   };
   
-  // 发送药品复核请求给子女端（优先走后端）
-  const sendMedicationReviewRequest = async (medInfo, imageUrl) => {
-    try {
-      await dataAdapter.createReviewRequest(medInfo, imageUrl);
-    } catch (e) {
-      console.warn('后端复核请求失败，回退本地:', e);
-      // 回退：localStorage
-      const reviewRequest = {
-        id: Date.now(),
-        elderlyId: localStorage.getItem('currentElderlyId'),
-        medication: medInfo,
-        imageUrl,
-        status: 'pending',
-        timestamp: new Date().toISOString()
-      };
-      const requests = JSON.parse(localStorage.getItem('medicationReviewRequests') || '[]');
-      requests.push(reviewRequest);
-      localStorage.setItem('medicationReviewRequests', JSON.stringify(requests));
-    }
-  };
-  
   // 生成邀请码
-  const generateInvitationCode = () => {
-    const elderlyId = localStorage.getItem('currentElderlyId');
-    if (elderlyId) {
-      // 生成6位随机邀请码
-      const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-      // 保存邀请码到本地存储
-      localStorage.setItem(`invitationCode_${elderlyId}`, code);
-      setInvitationCode(code);
-      // 生成邀请链接
-      const link = `${window.location.origin}?invite=${code}&elderlyId=${elderlyId}`;
-      setInvitationLink(link);
-      return code;
+  const generateInvitationCode = async () => {
+    try {
+      const res = await dataAdapter.createFamilyGroup();
+      const group = res.data?.family_group;
+      if (!res.success || !group?.group_code) throw new Error(res.error || '邀请码生成失败');
+      setInvitationCode(group.group_code);
+      setInvitationLink(`${window.location.origin}?invite=${group.group_code}`);
+      const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+      localStorage.setItem('currentUser', JSON.stringify({ ...currentUser, family_group_id: group.id }));
+      await loadFamilyMembers();
+      return group.group_code;
+    } catch (error) {
+      console.error('创建照护圈失败:', error);
+      alert(error.response?.data?.error || error.message || '暂时无法创建照护圈');
+      return null;
     }
-    return null;
   };
   
   // 加载家庭组成员
-  const loadFamilyMembers = () => {
-    const elderlyId = localStorage.getItem('currentElderlyId');
-    if (elderlyId) {
-      const family = JSON.parse(localStorage.getItem(`family_${elderlyId}`) || '[]');
-      setFamilyMembers(family);
+  const loadFamilyMembers = async () => {
+    try {
+      const res = await dataAdapter.getFamilyMembers();
+      if (res.success) {
+        const members = (res.data?.members || []).filter(member => member.role === 'child');
+        setFamilyMembers(members);
+        const code = res.data?.circle?.group?.group_code;
+        if (code) {
+          setInvitationCode(code);
+          setInvitationLink(`${window.location.origin}?invite=${code}`);
+        }
+      }
+    } catch (error) {
+      console.warn('读取照护圈失败:', error);
+      setFamilyMembers([]);
     }
   };
   
   // 移除家庭成员
-  const removeFamilyMember = (memberId) => {
-    const elderlyId = localStorage.getItem('currentElderlyId');
-    if (elderlyId) {
-      const family = JSON.parse(localStorage.getItem(`family_${elderlyId}`) || '[]');
-      const updatedFamily = family.filter(member => member.id !== memberId);
-      localStorage.setItem(`family_${elderlyId}`, JSON.stringify(updatedFamily));
-      setFamilyMembers(updatedFamily);
+  const removeFamilyMember = async (memberId) => {
+    if (!window.confirm('确定将这位家属移出照护圈吗？移除后对方将无法继续查看您的用药信息。')) return;
+    try {
+      const res = await dataAdapter.removeFamilyMember(memberId);
+      if (!res.success) throw new Error(res.error || '移除失败');
+      await loadFamilyMembers();
+    } catch (error) {
+      alert(error.response?.data?.error || error.message || '暂时无法移除成员');
+    }
+  };
+
+  const getFamilyMemberName = member => {
+    if (member.family_remark) return member.family_remark;
+    if (member.real_name && member.real_name !== member.username) return member.real_name;
+    return '未备注姓名';
+  };
+
+  const saveFamilyMemberRemark = async memberId => {
+    const remark = familyMemberRemark.trim();
+    if (!remark) {
+      alert('请输入家人的姓名或称呼');
+      return;
+    }
+    try {
+      const res = await dataAdapter.updateFamilyMemberProfile(memberId, { remark });
+      if (!res.success) throw new Error(res.error || '保存失败');
+      setFamilyMembers(current => current.map(member => (
+        member.id === memberId ? { ...member, family_remark: remark } : member
+      )));
+      setEditingFamilyMemberId(null);
+      setFamilyMemberRemark('');
+    } catch (error) {
+      alert(error.response?.data?.error || error.message || '暂时无法保存备注');
     }
   };
   
@@ -758,110 +834,30 @@ const ElderlyApp = () => {
         )}
 
         {showRegisterModal && !showWelcome && (
-          <div className="bg-white rounded-2xl shadow-xl p-5 sm:p-6 max-w-md w-full mx-2 sm:mx-4">
-            <div className="text-center mb-5 sm:mb-6">
-              <h1 className="elderly-title text-primary">药记得</h1>
-              <p className="text-sm sm:text-base text-gray-500 mt-2">长者端注册</p>
-              <div className="mt-3 sm:mt-4 p-2 sm:p-3 bg-blue-50 rounded-lg">
-                <p className="text-xs sm:text-sm text-primary flex items-start">
-                  <Shield className="mr-1.5 sm:mr-2 flex-shrink-0 mt-0.5 w-4 h-4" />
-                  为了您的用药安全，请完成实名认证
-                </p>
-              </div>
-            </div>
-
-            {registerError && (
-              <div className="bg-red-100 text-danger p-3 sm:p-4 rounded-lg mb-5">
-                {registerError}
-              </div>
-            )}
-
-            <div className="space-y-3 sm:space-y-4">
-              <div>
-                <label className="block text-base sm:text-lg font-medium mb-2">用户名</label>
-                <input
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="请输入用户名"
-                  className="w-full px-3 sm:px-4 py-3 sm:py-4 text-base sm:text-lg rounded-xl border-2 border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary"
-                />
-              </div>
-
-              <div>
-                <label className="block text-base sm:text-lg font-medium mb-2">真实姓名</label>
-                <input
-                  type="text"
-                  value={realName}
-                  onChange={(e) => setRealName(e.target.value)}
-                  placeholder="请输入真实姓名"
-                  className="w-full px-3 sm:px-4 py-3 sm:py-4 text-base sm:text-lg rounded-xl border-2 border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary"
-                />
-              </div>
-
-              <div>
-                <label className="block text-base sm:text-lg font-medium mb-2">身份证号</label>
-                <input
-                  type="text"
-                  value={idCard}
-                  onChange={(e) => setIdCard(e.target.value)}
-                  placeholder="请输入身份证号"
-                  className="w-full px-3 sm:px-4 py-3 sm:py-4 text-base sm:text-lg rounded-xl border-2 border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary"
-                />
-              </div>
-
-              <div>
-                <label className="block text-base sm:text-lg font-medium mb-2">密码</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="请输入密码"
-                  className="w-full px-3 sm:px-4 py-3 sm:py-4 text-base sm:text-lg rounded-xl border-2 border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary"
-                />
-              </div>
-
-              <div>
-                <label className="block text-base sm:text-lg font-medium mb-2">确认密码</label>
-                <input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="请再次输入密码"
-                  className="w-full px-3 sm:px-4 py-3 sm:py-4 text-base sm:text-lg rounded-xl border-2 border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary"
-                />
-              </div>
-
-              <button onClick={handleRegister} className="elderly-button bg-primary text-white">
-                注册
-              </button>
-
-              <div className="text-center">
-                <button
-                  onClick={() => {
-                    setShowRegisterModal(false);
-                    setShowLoginModal(true);
-                  }}
-                  className="text-primary text-base sm:text-lg hover:underline min-h-[40px] sm:min-h-[44px] inline-flex items-center"
-                >
-                  已有账号？立即登录
-                </button>
-              </div>
-
-              <div className="text-center mt-3 sm:mt-4">
-                <button
-                  onClick={() => {
-                    setShowWelcome(true);
-                    setShowLoginModal(false);
-                    setShowRegisterModal(false);
-                  }}
-                  className="text-gray-500 text-base sm:text-lg hover:underline min-h-[40px] sm:min-h-[44px] inline-flex items-center"
-                >
-                  返回首页先了解一下
-                </button>
-              </div>
-            </div>
-          </div>
+          <RegistrationFlow
+            role="parent"
+            username={username}
+            setUsername={setUsername}
+            password={password}
+            setPassword={setPassword}
+            confirmPassword={confirmPassword}
+            setConfirmPassword={setConfirmPassword}
+            realName={realName}
+            setRealName={setRealName}
+            error={registerError}
+            onSubmit={handleRegister}
+            onLogin={() => {
+              setRegisterError('');
+              setShowRegisterModal(false);
+              setShowLoginModal(true);
+            }}
+            onExplore={() => {
+              setRegisterError('');
+              setShowWelcome(true);
+              setShowLoginModal(false);
+              setShowRegisterModal(false);
+            }}
+          />
         )}
 
         {/* 未登录时也渲染模态框组件，确保未认证用户可以使用 */}
@@ -893,273 +889,277 @@ const ElderlyApp = () => {
     );
   }
 
-  const currentElderlyId = localStorage.getItem('currentElderlyId');
-
   return (
     <div className="w-full min-h-screen flex flex-col">
       <NotificationModal />
       
       {/* 顶部区域 */}
-      <div className="w-full flex flex-col items-center p-3 sm:p-8 pb-24">
-        <div className="w-full mb-5 sm:mb-8 glass rounded-2xl p-4 sm:p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-          <div>
-            <h1 className="elderly-title text-primary">药记得</h1>
-            <p className="elderly-text text-gray-600 text-sm sm:text-base">您的编号：{currentElderlyId}</p>
-          </div>
-          <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto justify-end">
-            {/* 留言板按钮 */}
-            <button
-              onClick={() => setShowMessageBoard(!showMessageBoard)}
-              className="relative min-h-[40px] min-w-[40px] sm:min-h-[44px] sm:min-w-[44px] flex items-center justify-center hover:bg-gray-200/60 rounded-lg transition-all"
-            >
-              <MessageSquare size={20} sm:size={24} className="text-gray-600" />
-              {messageUnreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-danger rounded-full flex items-center justify-center text-white text-xs">
-                  {messageUnreadCount}
-                </span>
-              )}
-            </button>
-            {/* 家庭组管理按钮 */}
-            <button
-              onClick={() => {
-                generateInvitationCode();
-                setShowFamilyModal(true);
-              }}
-              className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 sm:py-3 bg-primary/90 text-white rounded-lg hover:bg-primary min-h-[40px] sm:min-h-[44px] transition-all"
-            >
-              <Users size={18} sm:size={20} />
-              <span className="text-sm sm:text-lg">家庭组</span>
-            </button>
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 sm:py-3 bg-gray-200/60 rounded-lg text-gray-600 hover:bg-gray-300/60 min-h-[40px] sm:min-h-[44px] transition-all"
-            >
-              <LogOut size={18} sm:size={20} />
-              <span className="text-sm sm:text-lg">退出</span>
-            </button>
-          </div>
+      {activeBottomTab === 'medication' && (
+        <div className="elder-medication-page w-full flex flex-col items-center pb-28">
+          <ElderCreativeDashboard
+            medications={medications}
+            onToggle={handleToggleMedicationStatus}
+            onAddMedication={() => setShowAddMedicationModal(true)}
+            onScanMedication={() => setShowVisionModal(true)}
+            emergencyAction={<SOSButton variant="header" onTrigger={() => setShowSOSAlert(true)} />}
+          />
         </div>
-
-        <div className="w-full mb-7 sm:mb-12">
-          <div className="flex justify-between items-center mb-3 sm:mb-6">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-br from-yellow-400 via-orange-500 to-red-500 rounded-full flex items-center justify-center shadow-xl animate-pulse border-4 border-yellow-200/50">
-                <Clock size={24} sm:size={32} className="text-white drop-shadow-md" />
-              </div>
-              <div>
-                <h2 className="text-xl sm:text-3xl font-extrabold bg-gradient-to-r from-yellow-400 via-orange-500 to-red-500 bg-clip-text text-transparent drop-shadow-2xl animate-pulse">
-                  今日用药时间轴
-                </h2>
-                <div className="h-2 w-32 sm:w-48 bg-gradient-to-r from-yellow-400 via-orange-500 to-red-500 rounded-full mt-2 shadow-lg animate-pulse"></div>
-              </div>
-            </div>
-            <button
-              onClick={() => setShowAddMedicationModal(true)}
-              className="p-3 sm:p-4 bg-gradient-to-br from-orange-400 to-orange-600 text-white rounded-full shadow-lg min-h-[40px] sm:min-h-[44px] min-w-[40px] sm:min-w-[44px] transition-all hover:scale-105 hover:shadow-xl hover:rotate-90"
-            >
-              <Plus size={24} sm:size={28} />
-            </button>
-          </div>
-
-          {medications.length === 0 ? (
-            <div className="glass rounded-2xl p-6 sm:p-12 text-center">
-              <Clock size={40} sm:size={48} className="mx-auto mb-3 sm:mb-4 text-gray-500" />
-              <p className="elderly-text text-gray-600">暂无用药记录</p>
-              <p className="elderly-text text-gray-500 mt-2">点击右上角按钮添加用药</p>
-            </div>
-          ) : (
-            <MedicationTimeline
-              medications={medications}
-              onToggleStatus={handleToggleMedicationStatus}
-              onDelete={handleDeleteMedication}
-            />
-          )}
-        </div>
-      </div>
+      )}
 
       {/* 底部导航栏 - 固定在底部 */}
-      <div className="fixed bottom-0 left-0 right-0 glass border-t-2 border-white/40 shadow-lg z-40">
-        <div className="flex justify-around items-center py-3 sm:py-4 max-w-md mx-auto">
-          {/* 拍药盒 */}
+      {!showAIMedAdvisor && <div className="care-bottom-nav care-bottom-nav--elder fixed bottom-0 left-0 right-0 glass border-t shadow-lg z-40">
+        <div className="care-bottom-nav__items care-bottom-nav__items--elder">
           <button
-            onClick={() => setShowVisionModal(true)}
-            className="flex flex-col items-center justify-center gap-1 px-4 py-2 rounded-3xl hover:scale-105 active:scale-95 transition-all min-h-[60px] sm:min-h-[70px] relative overflow-hidden"
-            style={{
-              boxShadow: '0 8px 0 rgba(217, 119, 6, 0.5), 0 10px 20px rgba(0, 0, 0, 0.15), inset 0 -4px 0 rgba(0, 0, 0, 0.2), inset 0 4px 0 rgba(255, 255, 255, 0.4)',
-              transform: 'translateY(-2px)',
-              transitionDuration: '100ms'
+            type="button"
+            onClick={() => {
+              setShowMyPage(false);
+              setShowVisionModal(false);
+              setShowAIMedAdvisor(false);
+              setActiveBottomTab('medication');
             }}
-            onMouseDown={(e) => {
-              e.currentTarget.style.transform = 'translateY(4px) scale(0.97)';
-              e.currentTarget.style.boxShadow = '0 2px 0 rgba(217, 119, 6, 0.5), 0 4px 8px rgba(0, 0, 0, 0.15), inset 0 -1px 0 rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.3)';
-              e.currentTarget.style.transitionDuration = '50ms';
-            }}
-            onMouseUp={(e) => {
-              e.currentTarget.style.transform = 'translateY(-2px) scale(1)';
-              e.currentTarget.style.boxShadow = '0 8px 0 rgba(217, 119, 6, 0.5), 0 10px 20px rgba(0, 0, 0, 0.15), inset 0 -4px 0 rgba(0, 0, 0, 0.2), inset 0 4px 0 rgba(255, 255, 255, 0.4)';
-              e.currentTarget.style.transitionDuration = '100ms';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = 'translateY(-2px) scale(1)';
-              e.currentTarget.style.boxShadow = '0 8px 0 rgba(217, 119, 6, 0.5), 0 10px 20px rgba(0, 0, 0, 0.15), inset 0 -4px 0 rgba(0, 0, 0, 0.2), inset 0 4px 0 rgba(255, 255, 255, 0.4)';
-              e.currentTarget.style.transitionDuration = '100ms';
-            }}
-            onTouchStart={(e) => {
-              e.currentTarget.style.transform = 'translateY(4px) scale(0.97)';
-              e.currentTarget.style.boxShadow = '0 2px 0 rgba(217, 119, 6, 0.5), 0 4px 8px rgba(0, 0, 0, 0.15), inset 0 -1px 0 rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.3)';
-              e.currentTarget.style.transitionDuration = '50ms';
-            }}
-            onTouchEnd={(e) => {
-              e.currentTarget.style.transform = 'translateY(-2px) scale(1)';
-              e.currentTarget.style.boxShadow = '0 8px 0 rgba(217, 119, 6, 0.5), 0 10px 20px rgba(0, 0, 0, 0.15), inset 0 -4px 0 rgba(0, 0, 0, 0.2), inset 0 4px 0 rgba(255, 255, 255, 0.4)';
-              e.currentTarget.style.transitionDuration = '100ms';
-            }}
+            className={`care-nav-button ${activeBottomTab === 'medication' ? 'is-active' : ''}`}
           >
-            <div className="w-12 h-12 sm:w-14 sm:h-14 bg-gradient-to-br from-yellow-400 via-orange-400 to-orange-600 rounded-full flex items-center justify-center">
-              <Camera size={24} sm:size={28} className="text-white" />
-            </div>
-            <span className="text-sm sm:text-base font-bold text-black drop-shadow-md">拍药盒</span>
+            <span className="care-nav-button__icon care-nav-button__icon--medication"><Pill size={24} /></span>
+            <strong>今日用药</strong>
           </button>
 
           {/* AI用药顾问 */}
           <button
-            onClick={() => setShowAIMedAdvisor(true)}
-            className="flex flex-col items-center justify-center gap-1 px-4 py-2 rounded-3xl hover:scale-105 active:scale-95 transition-all min-h-[60px] sm:min-h-[70px] relative overflow-hidden ambient-glow purple-glow"
-            style={{
-              boxShadow: '0 8px 0 rgba(102, 51, 153, 0.5), 0 10px 20px rgba(0, 0, 0, 0.15), inset 0 -4px 0 rgba(0, 0, 0, 0.2), inset 0 4px 0 rgba(255, 255, 255, 0.4)',
-              transform: 'translateY(-2px)',
-              transitionDuration: '100ms'
+            type="button"
+            onClick={() => {
+              setShowMyPage(false);
+              setShowVisionModal(false);
+              setActiveBottomTab('advisor');
+              setShowAIMedAdvisor(true);
             }}
-            onMouseDown={(e) => {
-              e.currentTarget.style.transform = 'translateY(4px) scale(0.97)';
-              e.currentTarget.style.boxShadow = '0 2px 0 rgba(102, 51, 153, 0.5), 0 4px 8px rgba(0, 0, 0, 0.15), inset 0 -1px 0 rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.3)';
-              e.currentTarget.style.transitionDuration = '50ms';
-            }}
-            onMouseUp={(e) => {
-              e.currentTarget.style.transform = 'translateY(-2px) scale(1)';
-              e.currentTarget.style.boxShadow = '0 8px 0 rgba(102, 51, 153, 0.5), 0 10px 20px rgba(0, 0, 0, 0.15), inset 0 -4px 0 rgba(0, 0, 0, 0.2), inset 0 4px 0 rgba(255, 255, 255, 0.4)';
-              e.currentTarget.style.transitionDuration = '100ms';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = 'translateY(-2px) scale(1)';
-              e.currentTarget.style.boxShadow = '0 8px 0 rgba(102, 51, 153, 0.5), 0 10px 20px rgba(0, 0, 0, 0.15), inset 0 -4px 0 rgba(0, 0, 0, 0.2), inset 0 4px 0 rgba(255, 255, 255, 0.4)';
-              e.currentTarget.style.transitionDuration = '100ms';
-            }}
-            onTouchStart={(e) => {
-              e.currentTarget.style.transform = 'translateY(4px) scale(0.97)';
-              e.currentTarget.style.boxShadow = '0 2px 0 rgba(102, 51, 153, 0.5), 0 4px 8px rgba(0, 0, 0, 0.15), inset 0 -1px 0 rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.3)';
-              e.currentTarget.style.transitionDuration = '50ms';
-            }}
-            onTouchEnd={(e) => {
-              e.currentTarget.style.transform = 'translateY(-2px) scale(1)';
-              e.currentTarget.style.boxShadow = '0 8px 0 rgba(102, 51, 153, 0.5), 0 10px 20px rgba(0, 0, 0, 0.15), inset 0 -4px 0 rgba(0, 0, 0, 0.2), inset 0 4px 0 rgba(255, 255, 255, 0.4)';
-              e.currentTarget.style.transitionDuration = '100ms';
-            }}
+            className={`care-nav-button care-nav-button--advisor ${activeBottomTab === 'advisor' ? 'is-active' : ''}`}
           >
-            <div className="w-12 h-12 sm:w-14 sm:h-14 bg-gradient-to-br from-purple-500 to-purple-700 rounded-full flex items-center justify-center">
-              <Mic size={24} sm:size={28} className="text-white" />
-            </div>
-            <span className="text-sm sm:text-base font-bold text-black drop-shadow-md">AI顾问</span>
+            <span className="care-nav-button__icon care-nav-button__icon--advisor"><img src="/brand/yaoxiaonuan-nav-cropped.png" alt="" /></span>
+            <strong>问小暖</strong>
           </button>
 
-          {/* 服药记录 */}
+          {/* 我的 */}
           <button
-            onClick={() => setShowBehaviorRecord(true)}
-            className="flex flex-col items-center justify-center gap-1 px-4 py-2 rounded-3xl hover:scale-105 active:scale-95 transition-all min-h-[60px] sm:min-h-[70px] relative overflow-hidden"
-            style={{
-              boxShadow: '0 8px 0 rgba(37, 99, 235, 0.5), 0 10px 20px rgba(0, 0, 0, 0.15), inset 0 -4px 0 rgba(0, 0, 0, 0.2), inset 0 4px 0 rgba(255, 255, 255, 0.4)',
-              transform: 'translateY(-2px)',
-              transitionDuration: '100ms'
-            }}
-            onMouseDown={(e) => {
-              e.currentTarget.style.transform = 'translateY(4px) scale(0.97)';
-              e.currentTarget.style.boxShadow = '0 2px 0 rgba(37, 99, 235, 0.5), 0 4px 8px rgba(0, 0, 0, 0.15), inset 0 -1px 0 rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.3)';
-              e.currentTarget.style.transitionDuration = '50ms';
-            }}
-            onMouseUp={(e) => {
-              e.currentTarget.style.transform = 'translateY(-2px) scale(1)';
-              e.currentTarget.style.boxShadow = '0 8px 0 rgba(37, 99, 235, 0.5), 0 10px 20px rgba(0, 0, 0, 0.15), inset 0 -4px 0 rgba(0, 0, 0, 0.2), inset 0 4px 0 rgba(255, 255, 255, 0.4)';
-              e.currentTarget.style.transitionDuration = '100ms';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = 'translateY(-2px) scale(1)';
-              e.currentTarget.style.boxShadow = '0 8px 0 rgba(37, 99, 235, 0.5), 0 10px 20px rgba(0, 0, 0, 0.15), inset 0 -4px 0 rgba(0, 0, 0, 0.2), inset 0 4px 0 rgba(255, 255, 255, 0.4)';
-              e.currentTarget.style.transitionDuration = '100ms';
-            }}
-            onTouchStart={(e) => {
-              e.currentTarget.style.transform = 'translateY(4px) scale(0.97)';
-              e.currentTarget.style.boxShadow = '0 2px 0 rgba(37, 99, 235, 0.5), 0 4px 8px rgba(0, 0, 0, 0.15), inset 0 -1px 0 rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.3)';
-              e.currentTarget.style.transitionDuration = '50ms';
-            }}
-            onTouchEnd={(e) => {
-              e.currentTarget.style.transform = 'translateY(-2px) scale(1)';
-              e.currentTarget.style.boxShadow = '0 8px 0 rgba(37, 99, 235, 0.5), 0 10px 20px rgba(0, 0, 0, 0.15), inset 0 -4px 0 rgba(0, 0, 0, 0.2), inset 0 4px 0 rgba(255, 255, 255, 0.4)';
-              e.currentTarget.style.transitionDuration = '100ms';
-            }}
+            onClick={openMyPage}
+            className={`care-nav-button ${activeBottomTab === 'my' ? 'is-active' : ''}`}
           >
-            <div className="w-12 h-12 sm:w-14 sm:h-14 bg-gradient-to-br from-blue-500 to-blue-700 rounded-full flex items-center justify-center">
-              <Clock size={24} sm:size={28} className="text-white" />
-            </div>
-            <span className="text-sm sm:text-base font-bold text-black drop-shadow-md">服药记录</span>
+            <span className="care-nav-button__icon care-nav-button__icon--my"><User size={25} /></span>
+            <strong>我的</strong>
+            {messageUnreadCount > 0 && (
+              <span className="absolute right-2 top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-xs font-bold text-white">
+                {messageUnreadCount}
+              </span>
+            )}
           </button>
         </div>
-      </div>
+      </div>}
 
-      {showAddMedicationModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3">
-          <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden mx-2 sm:mx-4">
-            <div className="bg-primary text-white p-3 sm:p-4 flex justify-between items-center">
-              <h2 className="text-lg sm:text-2xl font-bold">添加用药</h2>
-              <button onClick={() => setShowAddMedicationModal(false)} className="p-2 min-h-[40px] sm:min-h-[44px] min-w-[40px] sm:min-w-[44px] flex items-center justify-center">
-                <X size={20} sm:size={24} />
+      {showMyPage && (
+        <div className="my-page feature-page">
+          <header className="my-page__header">
+            <h1>我的</h1>
+          </header>
+
+          <main className="my-page__content">
+            <button type="button" className="my-profile-card my-profile-card--entry" onClick={openProfileEditor} aria-label="编辑个人资料">
+              <span className="my-profile-card__avatar">
+                <img src={profileAvatar || '/brand/default-profile-avatar.png'} alt={profileAvatar ? '我的头像' : '默认头像'} />
+              </span>
+              <div className="my-profile-card__identity">
+                <strong>{profileUsername || '未设置用户名'}</strong>
+                {profileMessage && <p className="my-profile-card__message">{profileMessage}</p>}
+              </div>
+              <ChevronRight size={24} className="my-profile-card__chevron" />
+            </button>
+
+            <section className="my-menu-card" aria-label="我的功能">
+              <button type="button" onClick={() => {
+                setShowMyPage(false);
+                setShowFamilyModal(true);
+              }}>
+                <span className="my-menu-card__icon my-menu-card__icon--family"><Users size={24} /></span>
+                <strong>家人</strong>
+                {messageUnreadCount > 0 && <em>{messageUnreadCount}</em>}
+                <ChevronRight size={23} />
               </button>
+              <button type="button" onClick={() => {
+                setShowMyPage(false);
+                setShowBehaviorRecord(true);
+              }}>
+                <span className="my-menu-card__icon my-menu-card__icon--record"><ClipboardList size={24} /></span>
+                <strong>用药报告</strong>
+                <ChevronRight size={23} />
+              </button>
+              <button type="button" onClick={() => setMyPageSection(current => current === 'about' ? null : 'about')}>
+                <span className="my-menu-card__icon my-menu-card__icon--about"><Info size={24} /></span>
+                <strong>关于我们</strong>
+                <ChevronRight size={23} className={myPageSection === 'about' ? 'is-open' : ''} />
+              </button>
+              {myPageSection === 'about' && (
+                <div className="my-menu-detail">
+                  <Logo size="small" />
+                  <h2>关于药记得</h2>
+                  <p>药记得是一款面向长者与家人的用药管理工具，帮助记录每日计划、确认服药状态，并让家人及时了解照护情况。</p>
+                </div>
+              )}
+              <button type="button" onClick={() => setMyPageSection(current => current === 'privacy' ? null : 'privacy')}>
+                <span className="my-menu-card__icon my-menu-card__icon--privacy"><FileText size={24} /></span>
+                <strong>隐私政策</strong>
+                <ChevronRight size={23} className={myPageSection === 'privacy' ? 'is-open' : ''} />
+              </button>
+              {myPageSection === 'privacy' && (
+                <div className="my-menu-detail">
+                  <h2>隐私政策</h2>
+                  <p>我们仅使用提供服务所必需的账号、用药计划与照护圈信息。您的用药信息只向同一照护圈内已绑定的成员展示，不会用于无关用途。</p>
+                </div>
+              )}
+              <button type="button" onClick={() => setShowLogoutConfirm(true)}>
+                <span className="my-menu-card__icon my-menu-card__icon--logout"><LogOut size={24} /></span>
+                <strong>退出账号</strong>
+                <ChevronRight size={23} />
+              </button>
+            </section>
+          </main>
+        </div>
+      )}
+
+      {showProfileEditor && (
+        <div className="profile-editor-page" role="dialog" aria-modal="true" aria-label="编辑资料">
+          <header className="profile-editor-page__header">
+            <button type="button" onClick={() => setShowProfileEditor(false)} aria-label="返回我的"><ArrowLeft size={25} /></button>
+            <h1>编辑资料</h1>
+            <span aria-hidden="true" />
+          </header>
+          <form className="profile-editor-page__content" onSubmit={saveProfileDetails}>
+            <div className="profile-editor-avatar">
+              <button type="button" onClick={() => avatarInputRef.current?.click()} aria-label="更换头像">
+                <img src={profileAvatar || '/brand/default-profile-avatar.png'} alt="当前头像" />
+                <span><Camera size={18} />更换头像</span>
+              </button>
+              <input ref={avatarInputRef} type="file" accept="image/*" onChange={handleAvatarUpload} hidden />
             </div>
 
-            <div className="p-5 sm:p-6">
-              <div className="mb-5 sm:mb-6">
-                <label className="block text-base sm:text-lg font-medium mb-2">用药时间</label>
+            <section className="profile-editor-fields" aria-label="个人资料">
+              <label className="profile-editor-row">
+                <span>用户名</span>
+                <input value={usernameDraft} onChange={(event) => setUsernameDraft(event.target.value.slice(0, 20))} placeholder="请输入用户名" />
+              </label>
+              <div className="profile-editor-row is-readonly">
+                <span>账号ID</span>
+                <strong>{sessionUser.elderlyId || sessionUser.elderly_id || sessionUser.id || '—'}</strong>
+              </div>
+              <label className="profile-editor-row">
+                <span>性别</span>
+                <select value={profileDetails.gender} onChange={(event) => setProfileDetails(current => ({ ...current, gender: event.target.value }))}>
+                  <option value="">请选择</option>
+                  <option value="男">男</option>
+                  <option value="女">女</option>
+                  <option value="保密">保密</option>
+                </select>
+              </label>
+              <label className="profile-editor-row">
+                <span>生日</span>
+                <input type="date" value={profileDetails.birthday} max={new Date().toISOString().slice(0, 10)} onChange={(event) => setProfileDetails(current => ({ ...current, birthday: event.target.value }))} />
+              </label>
+              <label className="profile-editor-row">
+                <span>家乡</span>
+                <input value={profileDetails.hometown} onChange={(event) => setProfileDetails(current => ({ ...current, hometown: event.target.value.slice(0, 30) }))} placeholder="请输入家乡" />
+              </label>
+              <label className="profile-editor-row">
+                <span>常居地</span>
+                <input value={profileDetails.residence} onChange={(event) => setProfileDetails(current => ({ ...current, residence: event.target.value.slice(0, 30) }))} placeholder="请输入常居地" />
+              </label>
+              <label className="profile-editor-row">
+                <span>我的标签</span>
+                <input value={profileDetails.tags} onChange={(event) => setProfileDetails(current => ({ ...current, tags: event.target.value.slice(0, 40) }))} placeholder="例如：爱散步、喜欢听戏" />
+              </label>
+            </section>
+
+            {profileMessage && <p className="profile-editor-message" role="status">{profileMessage}</p>}
+            <button type="submit" className="profile-editor-save" disabled={isSavingProfile}>{isSavingProfile ? '保存中…' : '保存修改'}</button>
+          </form>
+        </div>
+      )}
+
+      {showLogoutConfirm && (
+        <div className="logout-confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="logout-confirm-title" onClick={() => setShowLogoutConfirm(false)}>
+          <section className="logout-confirm-dialog" onClick={(event) => event.stopPropagation()}>
+            <button type="button" className="logout-confirm-dialog__close" onClick={() => setShowLogoutConfirm(false)} aria-label="关闭退出确认"><X size={22} /></button>
+            <span className="logout-confirm-dialog__icon"><LogOut size={30} /></span>
+            <h2 id="logout-confirm-title">确认退出账号？</h2>
+            <p>退出后需要重新输入用户名和密码才能进入。</p>
+            <div className="logout-confirm-dialog__actions">
+              <button type="button" onClick={() => setShowLogoutConfirm(false)}>取消</button>
+              <button type="button" className="is-danger" onClick={() => {
+                setShowLogoutConfirm(false);
+                handleLogout();
+              }}>确认退出</button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {showAddMedicationModal && (
+        <div className="add-medication-layer" role="presentation">
+          <section className="add-medication-modal" role="dialog" aria-modal="true" aria-labelledby="add-medication-title">
+            <header className="add-medication-modal__header">
+              <span className="add-medication-modal__mark" aria-hidden="true"><Pill size={25} /></span>
+              <div>
+                <h2 id="add-medication-title">添加用药</h2>
+                <p>填写今天需要服用的药品</p>
+              </div>
+              <button type="button" onClick={() => setShowAddMedicationModal(false)} aria-label="关闭添加用药"><X size={24} /></button>
+            </header>
+
+            <div className="add-medication-modal__body">
+              <label className="add-medication-field">
+                <span><Clock size={21} />用药时间</span>
+                <small>请选择计划服药的具体时间</small>
                 <input
                   type="time"
                   value={newMedication.time}
                   onChange={(e) => setNewMedication({ ...newMedication, time: e.target.value })}
-                  className="w-full px-3 sm:px-4 py-3 sm:py-4 text-base sm:text-lg border-2 border-gray-300 rounded-xl focus:outline-none focus:border-primary"
                 />
-              </div>
+              </label>
 
-              <div className="mb-5 sm:mb-6">
-                <label className="block text-base sm:text-lg font-medium mb-2">药品名称</label>
+              <label className="add-medication-field">
+                <span><Pill size={21} />药品名称</span>
+                <small>请填写药盒或处方上的名称</small>
                 <input
                   type="text"
                   value={newMedication.name}
                   onChange={(e) => setNewMedication({ ...newMedication, name: e.target.value })}
-                  placeholder="请输入药品名称"
-                  className="w-full px-3 sm:px-4 py-3 sm:py-4 text-base sm:text-lg border-2 border-gray-300 rounded-xl focus:outline-none focus:border-primary"
+                  placeholder="例如：阿司匹林"
                 />
-              </div>
+              </label>
 
-              <div className="mb-5 sm:mb-6">
-                <label className="block text-base sm:text-lg font-medium mb-2">剂量</label>
+              <label className="add-medication-field">
+                <span><FileText size={21} />每次剂量</span>
+                <small>填写数量和单位，方便家人核对</small>
                 <input
                   type="text"
                   value={newMedication.dosage || ''}
                   onChange={(e) => setNewMedication({ ...newMedication, dosage: e.target.value })}
-                  placeholder="请输入剂量，如：500mg"
-                  className="w-full px-3 sm:px-4 py-3 sm:py-4 text-base sm:text-lg border-2 border-gray-300 rounded-xl focus:outline-none focus:border-primary"
+                  placeholder="例如：1片、500mg"
                 />
-              </div>
+              </label>
 
-              <button onClick={handleAddMedication} className="elderly-button bg-primary text-white">
-                <Save size={24} sm:size={28} className="mr-2.5 sm:mr-3" />
-                保存
+              <button type="button" onClick={handleAddMedication} className="add-medication-save">
+                <Save size={22} />
+                保存用药计划
               </button>
             </div>
-          </div>
+          </section>
         </div>
       )}
 
       <MedicineScanner
         isOpen={showVisionModal}
-        onClose={() => setShowVisionModal(false)}
+        pageMode
+        onClose={() => {
+          setShowVisionModal(false);
+          setActiveBottomTab('medication');
+        }}
         onAddMedication={handleVisionAddMedication}
         isLoggedIn={isLoggedIn}
       />
@@ -1174,75 +1174,144 @@ const ElderlyApp = () => {
         onSnooze={handleSnoozeMedication}
       />
       
-      {/* 家庭组管理模态框 */}
+      {/* 家人页面 */}
       {showFamilyModal && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-3">
-          <div className="bg-white rounded-2xl w-full max-w-lg mx-2 sm:mx-4 overflow-hidden">
-            <div className="bg-primary text-white p-3 sm:p-4 flex justify-between items-center">
-              <h2 className="text-lg sm:text-2xl font-bold">家庭组管理</h2>
-              <button 
-                onClick={() => setShowFamilyModal(false)}
-                className="p-2 min-h-[40px] sm:min-h-[44px] min-w-[40px] sm:min-w-[44px] flex items-center justify-center"
+        <div className="elder-family-page" role="dialog" aria-modal="true" aria-label="我的家人">
+          <div className="elder-family-page__surface">
+            <header className="elder-family-page__header">
+              <button type="button"
+                onClick={() => {
+                  setShowInviteFamilyModal(false);
+                  setShowFamilyModal(false);
+                  openMyPage();
+                }}
+                aria-label="返回我的"
               >
-                <X size={20} sm:size={24} />
+                <ArrowLeft size={24} />
               </button>
-            </div>
+              <h2>我的家人</h2>
+            </header>
             
-            <div className="p-5 sm:p-6">
-              {/* 邀请码和邀请链接 */}
-              <div className="mb-6 sm:mb-8">
-                <h3 className="text-base sm:text-lg font-medium mb-3 sm:mb-4">邀请家属</h3>
-                <div className="bg-gray-50 rounded-lg p-3 sm:p-4 mb-3 sm:mb-4">
-                  <p className="mb-2 text-sm sm:text-base">邀请码：<strong>{invitationCode}</strong></p>
-                  <p className="mb-3 sm:mb-4 text-sm sm:text-base">邀请链接：<strong className="text-primary break-all">{invitationLink}</strong></p>
-                  <button
-                    onClick={copyInvitationLink}
-                    className="w-full py-2.5 sm:py-3 bg-primary text-white rounded-lg font-medium hover:bg-primary/90 transition min-h-[40px] sm:min-h-[44px]"
-                  >
-                    复制邀请链接
-                  </button>
-                  <button
-                    onClick={generateInvitationCode}
-                    className="w-full mt-2 py-2.5 sm:py-3 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition min-h-[40px] sm:min-h-[44px]"
-                  >
-                    重新生成邀请码
+            <main className="elder-family-page__content">
+              <div className="mb-5">
+                <ElderConnectionCard
+                  familyRecipientId={familyMembers[0]?.id}
+                  familyMembers={familyMembers.map(member => ({ id: member.id, name: getFamilyMemberName(member) }))}
+                  currentUserId={currentUserId}
+                  onOpenMessages={() => { setShowFamilyModal(false); setShowMessageBoard(true); }}
+                />
+              </div>
+
+              {/* 打开后先看到家庭成员 */}
+              <div className="mb-6">
+                <div className="family-members-heading">
+                  <h3>家庭成员</h3>
+                  <button type="button" onClick={() => {
+                    setShowInviteFamilyModal(true);
+                    if (!invitationCode) generateInvitationCode();
+                  }} className="invite-family-trigger">
+                    <Plus size={19} />
+                    邀请家人
                   </button>
                 </div>
-                <p className="text-xs sm:text-sm text-gray-500">
-                  请将邀请码或链接分享给您的家属，他们可以通过邀请码或链接加入您的家庭组。
-                  <br className="hidden sm:block" />每个家庭组最多支持5名家属成员。
-                </p>
-              </div>
-              
-              {/* 家庭成员列表 */}
-              <div>
-                <h3 className="text-base sm:text-lg font-medium mb-3 sm:mb-4">家庭成员</h3>
                 {familyMembers.length === 0 ? (
-                  <div className="bg-gray-50 rounded-lg p-3 sm:p-4 text-center">
+                  <div className="bg-orange-50 rounded-xl p-4 text-center">
+                    <XiaoNuan size="small" pose="wave" />
                     <p className="text-gray-500">暂无家庭成员</p>
-                    <p className="text-xs sm:text-sm text-gray-400 mt-2">请通过邀请码或链接邀请家属加入</p>
+                    <p className="text-sm text-gray-400 mt-2">点击“邀请家人”，即可分享邀请码</p>
                   </div>
                 ) : (
-                  <div className="space-y-2 sm:space-y-3">
+                  <div className="space-y-3">
                     {familyMembers.map(member => (
-                      <div key={member.id} className="bg-gray-50 rounded-lg p-3 sm:p-4 flex justify-between items-center">
-                        <div>
-                          <p className="font-medium">{member.username}</p>
-                          <p className="text-xs sm:text-sm text-gray-500">{member.relationship}</p>
-                        </div>
-                        <button
-                          onClick={() => removeFamilyMember(member.id)}
-                          className="px-2.5 sm:px-3 py-1 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition min-h-[36px]"
-                        >
-                          移除
-                        </button>
+                      <div key={member.id} className="rounded-xl border border-orange-100 bg-orange-50/60 p-4">
+                        {editingFamilyMemberId === member.id ? (
+                          <div>
+                            <label className="block text-sm font-bold text-gray-700 mb-2">给这位家人备注姓名</label>
+                            <input
+                              value={familyMemberRemark}
+                              onChange={(event) => setFamilyMemberRemark(event.target.value.slice(0, 20))}
+                              onKeyDown={(event) => event.key === 'Enter' && saveFamilyMemberRemark(member.id)}
+                              placeholder="例如：小任、女儿小敏"
+                              autoFocus
+                              className="w-full rounded-xl border-2 border-orange-200 bg-white px-4 py-3 text-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                            />
+                            <div className="mt-3 grid grid-cols-2 gap-2">
+                              <button
+                                onClick={() => saveFamilyMemberRemark(member.id)}
+                                className="min-h-[44px] rounded-xl bg-primary font-bold text-white"
+                              >
+                                保存姓名
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setEditingFamilyMemberId(null);
+                                  setFamilyMemberRemark('');
+                                }}
+                                className="min-h-[44px] rounded-xl bg-white font-bold text-gray-600"
+                              >
+                                取消
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate text-lg font-bold text-gray-900">{getFamilyMemberName(member)}</p>
+                              <p className="mt-1 text-sm font-medium text-orange-700">{member.relationship || '家属'}</p>
+                            </div>
+                            <div className="flex shrink-0 gap-2">
+                              <button
+                                onClick={() => {
+                                  setEditingFamilyMemberId(member.id);
+                                  setFamilyMemberRemark(member.family_remark || '');
+                                }}
+                                className="min-h-[40px] rounded-lg bg-white px-3 font-bold text-primary shadow-sm"
+                              >
+                                备注姓名
+                              </button>
+                              <button
+                                onClick={() => removeFamilyMember(member.id)}
+                                className="min-h-[40px] rounded-lg bg-red-50 px-3 font-bold text-red-600"
+                              >
+                                移除
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
                 )}
               </div>
-            </div>
+
+            </main>
           </div>
+
+          {showInviteFamilyModal && (
+            <div className="invite-family-overlay" role="dialog" aria-modal="true" aria-labelledby="invite-family-title" onClick={() => setShowInviteFamilyModal(false)}>
+              <section className="invite-family-dialog" onClick={(event) => event.stopPropagation()}>
+                <button type="button" className="invite-family-dialog__close" onClick={() => setShowInviteFamilyModal(false)} aria-label="关闭邀请家人"><X size={23} /></button>
+                <div className="invite-family-dialog__icon"><Users size={30} /></div>
+                <p className="care-eyebrow">一起照护，更安心</p>
+                <h2 id="invite-family-title">邀请新家人</h2>
+                <p className="invite-family-dialog__intro">让家人在注册或登录后输入这个邀请码，即可加入您的照护圈。</p>
+                <div className="invite-family-code" aria-label={`邀请码 ${invitationCode || '生成中'}`}>
+                  <span>家庭邀请码</span>
+                  <strong>{invitationCode || '生成中…'}</strong>
+                </div>
+                {invitationLink && <p className="invite-family-link">{invitationLink}</p>}
+                <button type="button" className="invite-family-dialog__primary" onClick={invitationLink ? copyInvitationLink : generateInvitationCode}>
+                  <Copy size={20} />
+                  {invitationLink ? '复制邀请链接' : '生成邀请码'}
+                </button>
+                <button type="button" className="invite-family-dialog__refresh" onClick={generateInvitationCode}>
+                  <RefreshCw size={18} />
+                  刷新邀请码
+                </button>
+                <small>邀请码24小时有效，最多可加入5位家属。</small>
+              </section>
+            </div>
+          )}
         </div>
       )}
 
@@ -1256,7 +1325,10 @@ const ElderlyApp = () => {
                 留言板
               </h2>
               <button 
-                onClick={() => setShowMessageBoard(false)}
+                onClick={() => {
+                  setShowMessageBoard(false);
+                  openMyPage();
+                }}
                 className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center"
               >
                 <X size={24} />
@@ -1274,9 +1346,6 @@ const ElderlyApp = () => {
         </div>
       )}
 
-      {/* SOS紧急求助按钮 */}
-      <SOSButton onTrigger={() => setShowSOSAlert(true)} />
-      
       {/* SOS紧急求助弹窗 */}
       <SOSAlert 
         isOpen={showSOSAlert} 
@@ -1298,16 +1367,26 @@ const ElderlyApp = () => {
       {/* AI用药顾问 */}
       <AIMedicationAdvisor 
         isOpen={showAIMedAdvisor} 
-        onClose={() => setShowAIMedAdvisor(false)}
+        pageMode
+        onClose={() => {
+          setShowAIMedAdvisor(false);
+          setActiveBottomTab('medication');
+        }}
         currentMedications={medications}
       />
       
-      {/* 服药行为记录 */}
-      <MedicationBehaviorRecord
+      {/* 用药报告 */}
+      <MedicationReport
         isOpen={showBehaviorRecord}
-        onClose={() => setShowBehaviorRecord(false)}
+        pageMode
+        title="用药报告"
+        showPeaceTree
+        onClose={() => {
+          setShowBehaviorRecord(false);
+          openMyPage();
+        }}
         medications={medications}
-        elderlyInfo={{ name: localStorage.getItem('elderlyName') || '长者' }}
+        boundElderly={{ elderlyId: currentUserId, realName: sessionUser.real_name || localStorage.getItem('elderlyName') || '您' }}
       />
     </div>
   );

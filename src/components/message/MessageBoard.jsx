@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Send, Mic, Volume2, VolumeX, CheckCircle } from 'lucide-react';
+import { Send, Mic, Volume2, VolumeX, CheckCircle, MessageCircleHeart } from 'lucide-react';
 import dataAdapter from '../../services/dataAdapter';
 
-const MessageBoard = ({ userType, userId, recipientId, onUnreadCountChange }) => {
+const MessageBoard = ({ userType, userId, recipientId, onUnreadCountChange, compact = false }) => {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [isRecording, setIsRecording] = useState(false);
@@ -20,13 +20,6 @@ const MessageBoard = ({ userType, userId, recipientId, onUnreadCountChange }) =>
     type: m.type || 'text',
     isRead: m.is_read ?? false,
     timestamp: m.created_at || m.timestamp
-  });
-
-  // UI 字段 → 后端字段映射（发消息时）
-  const buildPayload = (content, type = 'text') => ({
-    to_user_id: recipientId,
-    content,
-    type
   });
 
   // 加载消息（优先后端）
@@ -162,9 +155,9 @@ const MessageBoard = ({ userType, userId, recipientId, onUnreadCountChange }) =>
   };
 
   return (
-    <div className="w-full max-w-4xl mx-auto space-y-6">
+    <div className={`w-full max-w-4xl mx-auto ${compact ? 'message-board--compact' : 'space-y-6'}`}>
       {/* 头部 */}
-      <div className="bg-white rounded-2xl shadow-lg p-6">
+      {!compact && <div className="bg-white rounded-2xl shadow-lg p-6">
         <div className="flex items-center justify-between">
           <h2 className="text-2xl font-bold">留言板</h2>
           {unreadCount > 0 && (
@@ -173,11 +166,13 @@ const MessageBoard = ({ userType, userId, recipientId, onUnreadCountChange }) =>
             </span>
           )}
         </div>
-      </div>
+      </div>}
 
       {/* 消息列表 */}
-      <div className="bg-white rounded-2xl shadow-lg p-6">
+      <div className="bg-white rounded-2xl shadow-lg p-6 message-board__panel">
+        {compact && <div className="message-board__heading"><div><MessageCircleHeart size={22} /><h2>留言</h2></div>{unreadCount > 0 && <span>{unreadCount}条未读</span>}</div>}
         <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
+          {!messages.length && <p className="message-board__empty">还没有留言，发一句关心吧。</p>}
           {messages.map((message) => (
             <div
               key={message.id}

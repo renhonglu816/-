@@ -89,8 +89,11 @@ SUPABASE_ANON_KEY=your-anon-key-here
 # 服务器配置
 PORT=3001
 
-# AI 服务（仅后端配置，绝不能写入 VITE_ 前缀变量）
-SILICONFLOW_API_KEY=your-server-side-key
+# 阿里云百炼 Qwen 服务（仅后端配置，绝不能写入 VITE_ 前缀变量）
+DASHSCOPE_API_KEY=your-server-side-key
+DASHSCOPE_BASE_URL=https://your-workspace-id.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
+DASHSCOPE_MODEL=qwen3.8-omni-flash
+DASHSCOPE_REASONING_EFFORT=none
 AI_REQUIRE_AUTH=true
 ALLOW_MOCK_AUTH=false
 

@@ -1,16 +1,16 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { CheckCircle, XCircle, Bell, Clock, Calendar, User, Lock, LogOut, Plus, X, Link, Users, Edit, Trash, MessageSquare, AlertTriangle, Activity } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { ChevronRight, User, Lock, X, Link, Users, Eye, ShieldCheck } from 'lucide-react';
 import NotificationModal from '../components/NotificationModal';
-import MessageBoard from '../components/message/MessageBoard';
 import SOSNotification from '../components/family/SOSNotification';
-import MedicationReport from '../components/family/MedicationReport';
 import { useCrossWindowSync, SYNC_EVENTS } from '../hooks/useCrossWindowSync';
 import dataAdapter from '../services/dataAdapter';
+import RegistrationFlow from '../components/auth/RegistrationFlow';
+import FamilyCareExperience from '../components/family/FamilyCareExperience';
 
-const ChildDashboard = () => {
+const ChildDashboard = ({ onLogout }) => {
   // 登录状态
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [showLoginModal, setShowLoginModal] = useState(true);
+  const [isLoggedIn, setIsLoggedIn] = useState(() => Boolean(localStorage.getItem('childToken') && localStorage.getItem('currentUser')));
+  const [showLoginModal, setShowLoginModal] = useState(() => !localStorage.getItem('childToken'));
   const [showRegisterModal, setShowRegisterModal] = useState(false);
   const [showBindModal, setShowBindModal] = useState(false);
   const [username, setUsername] = useState('');
@@ -23,24 +23,34 @@ const ChildDashboard = () => {
   // 绑定长者相关
   const [elderlyId, setElderlyId] = useState('');
   const [relationship, setRelationship] = useState('');
-  const [boundElderly, setBoundElderly] = useState(null);
+  const [customRelationship, setCustomRelationship] = useState('');
+  const [carePermission, setCarePermission] = useState('');
+  const [boundElderly, setBoundElderly] = useState(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem('careBinding') || 'null');
+      const current = JSON.parse(localStorage.getItem('currentUser') || 'null');
+      return cached && (!cached.childUserId || cached.childUserId === current?.id) ? cached : null;
+    } catch (_error) {
+      return null;
+    }
+  });
   
   // 用药数据
   const [medications, setMedications] = useState([]);
   const [reminders, setReminders] = useState([]);
   
   // 留言功能
-  const [showMessageBoard, setShowMessageBoard] = useState(false);
   const [messageUnreadCount, setMessageUnreadCount] = useState(0);
-  const currentUserId = 'child1'; // 模拟用户ID
-  const currentElderlyId = 'parent1'; // 模拟长者ID
+  const sessionUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+  const currentUserId = sessionUser.id || 'child1';
   
   // SOS紧急求助通知
   const [showSOSNotification, setShowSOSNotification] = useState(false);
-  const [hasSOSAlert, setHasSOSAlert] = useState(false);
-  
-  // 服药报告
-  const [showMedicationReport, setShowMedicationReport] = useState(false);
+  const [careAlerts, setCareAlerts] = useState([]);
+  const [selectedAlertId, setSelectedAlertId] = useState(null);
+  const [lastSyncedAt, setLastSyncedAt] = useState(null);
+  const [dataSource, setDataSource] = useState('loading');
+  const seenSOSAlerts = useRef(new Set());
   
   // 药品复核请求
   const [reviewRequests, setReviewRequests] = useState([]);
@@ -50,15 +60,16 @@ const ChildDashboard = () => {
   // 家庭组邀请
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteCode, setInviteCode] = useState('');
+  const [isJoiningCircle, setIsJoiningCircle] = useState(false);
+  const [isLoadingCircle, setIsLoadingCircle] = useState(true);
+  const joinRequestLock = useRef(false);
   
   // 服药提醒管理
   const [showMedicationModal, setShowMedicationModal] = useState(false);
   const [editingMedication, setEditingMedication] = useState(null);
   const [medicationForm, setMedicationForm] = useState({ time: '', name: '', dosage: '', usage: '', effect: '', frequency: '' });
   
-  // 历史服药记录
-  const [historyRecords, setHistoryRecords] = useState([]);
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const canManageMedication = boundElderly?.carePermission === 'manager';
 
   // 处理跨窗口同步的事件
   const handleMedicationTaken = useCallback(() => {
@@ -161,18 +172,25 @@ const ChildDashboard = () => {
   useEffect(() => {
     let cancelled = false;
     const checkAlerts = async () => {
+      const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+      const alertUsername = currentUser.username || localStorage.getItem('childUsername') || 'testchild';
+      const localNotifications = (() => {
+        try {
+          const saved = JSON.parse(localStorage.getItem(`notifications_${alertUsername}`) || '[]');
+          return Array.isArray(saved) ? saved : [];
+        } catch (_error) { return []; }
+      })();
       try {
         const res = await dataAdapter.getSOSNotifications();
         if (res.success && res.data?.notifications && !cancelled) {
-          const pending = res.data.notifications.filter(n => n.status === 'pending');
-          if (pending.length > 0) {
-            setHasSOSAlert(true);
-            if (!showSOSNotification) {
-              setShowSOSNotification(true);
-            }
-          } else {
-            setHasSOSAlert(false);
-          }
+          const pending = res.data.notifications.filter(n => n.status === 'pending').map(n => ({
+            ...n, type: 'sos', timestamp: n.created_at, elderlyName: n.elderly_name, elderlyId: n.elderly_id
+          }));
+          const localMissed = localNotifications.filter(n => n?.type === 'missed' && !n.read);
+          setCareAlerts([...pending, ...localMissed]);
+          const unseen = pending.find(n => !seenSOSAlerts.current.has(n.id));
+          pending.forEach(n => seenSOSAlerts.current.add(n.id));
+          if (unseen) { setSelectedAlertId(unseen.id); setShowSOSNotification(true); }
           return;
         }
       } catch (e) {
@@ -180,20 +198,17 @@ const ChildDashboard = () => {
       }
 
       // 回退：localStorage
-      let currentUser = localStorage.getItem('childUsername') || 'testchild';
       try {
-        const notifications = JSON.parse(localStorage.getItem(`notifications_${currentUser}`) || '[]');
+        const notifications = localNotifications;
+        setCareAlerts(notifications);
         const unreadAlerts = notifications.filter(n =>
           n && (n.type === 'sos' || n.type === 'missed') && !n.read
         );
-        if (unreadAlerts.length > 0) {
-          setHasSOSAlert(true);
-          if (!showSOSNotification) setShowSOSNotification(true);
-        } else {
-          setHasSOSAlert(false);
-        }
+        const unseen = unreadAlerts.find(n => n.type === 'sos' && !seenSOSAlerts.current.has(n.id));
+        unreadAlerts.forEach(n => seenSOSAlerts.current.add(n.id));
+        if (unseen) { setSelectedAlertId(unseen.id); setShowSOSNotification(true); }
       } catch (e) {
-        setHasSOSAlert(false);
+        setCareAlerts([]);
       }
     };
 
@@ -212,7 +227,7 @@ const ChildDashboard = () => {
       window.removeEventListener('storage', handleStorageChange);
       clearInterval(interval);
     };
-  }, [showSOSNotification]);
+  }, []);
 
   // 监听药品复核请求（优先走后端）
   useEffect(() => {
@@ -223,10 +238,6 @@ const ChildDashboard = () => {
         if (res.success && res.data?.requests && !cancelled) {
           const pending = res.data.requests.filter(r => r.status === 'pending');
           setReviewRequests(pending);
-          if (pending.length > 0 && !showReviewModal) {
-            setCurrentReviewRequest(pending[0]);
-            setShowReviewModal(true);
-          }
           return;
         }
       } catch (e) {
@@ -241,10 +252,6 @@ const ChildDashboard = () => {
             request => request && request.elderlyId === boundElderly.elderlyId && request.status === 'pending'
           );
           setReviewRequests(relevantRequests);
-          if (relevantRequests.length > 0 && !showReviewModal) {
-            setCurrentReviewRequest(relevantRequests[0]);
-            setShowReviewModal(true);
-          }
         }
       } catch (e) {
         console.error('解析复核请求失败:', e);
@@ -259,18 +266,12 @@ const ChildDashboard = () => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [boundElderly, showReviewModal]);
+  }, [boundElderly]);
 
   // 实时监听用药数据变化
   useEffect(() => {
-    const checkMedicationData = () => {
-      if (boundElderly) {
-        // 从本地存储加载今日用药（基于长者ID）
-        const storedMedications = localStorage.getItem(`medications_${boundElderly.elderlyId}`);
-        if (storedMedications) {
-          setMedications(JSON.parse(storedMedications));
-        }
-      }
+    const checkMedicationData = async () => {
+      if (boundElderly) await loadMedicationData();
     };
 
     // 初始加载
@@ -283,19 +284,49 @@ const ChildDashboard = () => {
   }, [boundElderly]);
 
   // 加载绑定的长者信息
-  const loadBoundElderly = () => {
-    const currentUser = localStorage.getItem('currentUser');
-    if (currentUser) {
-      const user = JSON.parse(currentUser);
-      const boundElderlyInfo = user.boundElderly;
-      if (boundElderlyInfo) {
+  const loadBoundElderly = async () => {
+    setIsLoadingCircle(true);
+    const cachedBinding = (() => {
+      try { return JSON.parse(localStorage.getItem('careBinding') || 'null'); } catch (_error) { return null; }
+    })();
+    try {
+      const res = await dataAdapter.getMyCareCircle();
+      const circle = res.data?.circle;
+      if (res.success && circle?.parent) {
+        const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+        const membership = circle.members?.find(member => member.id === currentUser.id);
+        const boundElderlyInfo = {
+          elderlyId: circle.parent.id,
+          realName: circle.parent.real_name || circle.parent.username,
+          relationship: membership?.relationship || currentUser.relationship || cachedBinding?.relationship || '家属',
+          carePermission: membership?.care_permission || cachedBinding?.carePermission || 'viewer',
+          groupCode: circle.group.group_code,
+          childUserId: currentUser.id
+        };
         setBoundElderly(boundElderlyInfo);
         setElderlyId(boundElderlyInfo.elderlyId);
         setRelationship(boundElderlyInfo.relationship);
-      } else {
-        // 如果没有绑定长者，显示绑定界面
-        setShowBindModal(true);
+        setCarePermission(boundElderlyInfo.carePermission);
+        localStorage.setItem('currentUser', JSON.stringify({ ...currentUser, family_group_id: circle.group.id, boundElderly: boundElderlyInfo }));
+        localStorage.setItem('careBinding', JSON.stringify(boundElderlyInfo));
+        setShowInviteModal(false);
+        return;
       }
+      if (res.success) {
+        setBoundElderly(null);
+        localStorage.removeItem('careBinding');
+        setShowInviteModal(false);
+      }
+    } catch (error) {
+      console.warn('读取照护圈失败:', error);
+      if (cachedBinding) {
+        setBoundElderly(cachedBinding);
+        setShowInviteModal(false);
+      } else {
+        setBindError('照护圈信息加载失败，请检查网络后重试');
+      }
+    } finally {
+      setIsLoadingCircle(false);
     }
   };
 
@@ -305,6 +336,8 @@ const ChildDashboard = () => {
       const res = await dataAdapter.getMedications();
       if (res.success && res.data?.medications) {
         setMedications(res.data.medications);
+        setLastSyncedAt(new Date().toISOString());
+        setDataSource('server');
         return;
       }
     } catch (e) {
@@ -316,6 +349,9 @@ const ChildDashboard = () => {
     const storedMedications = localStorage.getItem(`medications_${boundElderly.elderlyId}`);
     if (storedMedications) {
       setMedications(JSON.parse(storedMedications));
+      setDataSource('local');
+    } else {
+      setDataSource('loading');
     }
   };
 
@@ -362,13 +398,39 @@ const ChildDashboard = () => {
     }
   };
 
-  // 模拟注册
-  const handleRegister = () => {
+  // 注册：优先使用后端，离线演示时保留本地回退
+  const handleRegister = async () => {
     if (password !== confirmPassword) {
       setRegisterError('两次输入的密码不一致');
       return;
     }
-    
+    if (password.length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+      setRegisterError('密码至少 8 位，并同时包含字母和数字');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001/api'}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password, role: 'child' })
+      });
+      const json = await res.json();
+      if (json.success && json.data) {
+        localStorage.setItem('authToken', json.data.token);
+        localStorage.setItem('childToken', json.data.token);
+        localStorage.setItem('userId', json.data.user.id);
+        localStorage.setItem('currentUser', JSON.stringify(json.data.user));
+        setRegisterError('');
+        setShowRegisterModal(false);
+        setIsLoggedIn(true);
+        setShowInviteModal(true);
+        return;
+      }
+    } catch (error) {
+      console.warn('后端注册不可用，回退本地注册:', error);
+    }
+
     const users = JSON.parse(localStorage.getItem('childUsers') || '[]');
     if (users.some(u => u.username === username)) {
       setRegisterError('用户名已存在');
@@ -380,14 +442,22 @@ const ChildDashboard = () => {
     localStorage.setItem('childUsers', JSON.stringify(users));
     setShowRegisterModal(false);
     setRegisterError('');
-    // 注册成功后自动登录
-    handleLogin();
+    await handleLogin();
   };
 
   // 绑定长者
   const handleBindElderly = () => {
+    const relationshipLabel = relationship === '其他' ? customRelationship.trim() : relationship;
     if (!elderlyId || !relationship) {
       setBindError('请填写完整的长者编号和关系');
+      return;
+    }
+    if (!relationshipLabel) {
+      setBindError('请填写您与长者的具体关系');
+      return;
+    }
+    if (!carePermission) {
+      setBindError('请选择您是观察者还是管理者');
       return;
     }
 
@@ -405,7 +475,7 @@ const ChildDashboard = () => {
     currentUser.boundElderly = {
       elderlyId: elderly.elderlyId,
       realName: elderly.realName,
-      relationship: relationship
+      relationship: relationshipLabel
     };
     
     // 更新用户列表
@@ -428,7 +498,7 @@ const ChildDashboard = () => {
       family.push({
         id: Date.now(),
         username: currentUser.username,
-        relationship: relationship,
+        relationship: relationshipLabel,
         joinedAt: new Date().toISOString()
       });
       localStorage.setItem(familyKey, JSON.stringify(family));
@@ -456,6 +526,7 @@ const ChildDashboard = () => {
     setShowLoginModal(true);
     setBoundElderly(null);
     setMedications([]);
+    onLogout?.();
   };
   
   // 处理药品复核请求 - 确认
@@ -524,82 +595,51 @@ const ChildDashboard = () => {
   };
   
   // 处理邀请码加入家庭组
-  const handleJoinFamily = () => {
+  const handleJoinFamily = async () => {
+    if (joinRequestLock.current) return;
     if (!inviteCode) {
       setBindError('请输入邀请码');
       return;
     }
     
-    // 查找邀请码对应的老人ID
-    let targetElderlyId = null;
-    const elderlyUsers = JSON.parse(localStorage.getItem('elderlyUsers') || '[]');
-    
-    for (const elderly of elderlyUsers) {
-      const storedCode = localStorage.getItem(`invitationCode_${elderly.elderlyId}`);
-      if (storedCode === inviteCode) {
-        targetElderlyId = elderly.elderlyId;
-        break;
-      }
-    }
-    
-    if (!targetElderlyId) {
-      setBindError('邀请码无效，请检查邀请码是否正确');
+    if (!relationship) {
+      setBindError('请选择您与长者的关系');
       return;
     }
-    
-    // 检查家庭组人数是否已满
-    const family = JSON.parse(localStorage.getItem(`family_${targetElderlyId}`) || '[]');
-    if (family.length >= 5) {
-      setBindError('家庭组人数已满，最多支持5名家属成员');
+    const relationshipLabel = relationship === '其他' ? customRelationship.trim() : relationship;
+    if (!relationshipLabel) {
+      setBindError('请填写您与长者的具体关系');
       return;
     }
-    
-    // 获取当前用户信息
-    const currentUser = JSON.parse(localStorage.getItem('currentUser'));
-    if (!currentUser) {
-      setBindError('请先登录');
-      return;
+    joinRequestLock.current = true;
+    setIsJoiningCircle(true);
+    try {
+      setBindError('');
+      const res = await dataAdapter.joinFamilyGroup(inviteCode.trim(), relationshipLabel, carePermission);
+      const circle = res.data?.circle;
+      if (!res.success || !circle?.parent) throw new Error(res.error || '加入失败');
+      const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+      const boundElderlyInfo = {
+        elderlyId: circle.parent.id,
+        realName: circle.parent.real_name || circle.parent.username,
+        relationship: relationshipLabel,
+        carePermission: res.data?.membership?.care_permission || carePermission,
+        groupCode: circle.group.group_code,
+        childUserId: currentUser.id
+      };
+      localStorage.setItem('currentUser', JSON.stringify({ ...currentUser, family_group_id: circle.group.id, relationship: relationshipLabel, care_permission: boundElderlyInfo.carePermission, boundElderly: boundElderlyInfo }));
+      localStorage.setItem('careBinding', JSON.stringify(boundElderlyInfo));
+      setBoundElderly(boundElderlyInfo);
+      setElderlyId(boundElderlyInfo.elderlyId);
+      setShowInviteModal(false);
+      await loadMedicationData();
+      window.history.replaceState({}, '', window.location.pathname);
+    } catch (error) {
+      setBindError(error.response?.data?.error || error.message || '暂时无法加入照护圈');
+    } finally {
+      joinRequestLock.current = false;
+      setIsJoiningCircle(false);
     }
-    
-    // 检查用户是否已经在家庭组中
-    if (family.some(member => member.id === currentUser.username)) {
-      setBindError('您已经在该家庭组中');
-      return;
-    }
-    
-    // 添加用户到家庭组
-    const newMember = {
-      id: currentUser.username,
-      username: currentUser.username,
-      relationship: relationship
-    };
-    
-    const updatedFamily = [...family, newMember];
-    localStorage.setItem(`family_${targetElderlyId}`, JSON.stringify(updatedFamily));
-    
-    // 更新当前用户的绑定信息
-    currentUser.boundElderly = {
-      elderlyId: targetElderlyId,
-      realName: elderlyUsers.find(e => e.elderlyId === targetElderlyId)?.realName || '未知老人',
-      relationship: relationship
-    };
-    
-    // 更新用户列表
-    const childUsers = JSON.parse(localStorage.getItem('childUsers') || '[]');
-    const userIndex = childUsers.findIndex(u => u.username === currentUser.username);
-    if (userIndex !== -1) {
-      childUsers[userIndex] = currentUser;
-      localStorage.setItem('childUsers', JSON.stringify(childUsers));
-    }
-    
-    localStorage.setItem('currentUser', JSON.stringify(currentUser));
-    setBoundElderly(currentUser.boundElderly);
-    setShowInviteModal(false);
-    setBindError('');
-    loadMedicationData();
-    
-    // 显示成功提示
-    alert('成功加入家庭组');
   };
   
   // 检查URL中的邀请码
@@ -683,23 +723,6 @@ const ChildDashboard = () => {
     alert('服药提醒已添加');
   };
   
-  // 加载历史服药记录
-  const loadHistoryRecords = () => {
-    if (!boundElderly) return;
-    
-    const history = JSON.parse(localStorage.getItem(`medicationHistory_${boundElderly.elderlyId}`) || '[]');
-    // 按日期筛选记录
-    const filteredRecords = history.filter(record => record.date === selectedDate);
-    setHistoryRecords(filteredRecords);
-  };
-  
-  // 当绑定的老人或选择的日期变化时，加载历史记录
-  useEffect(() => {
-    if (boundElderly) {
-      loadHistoryRecords();
-    }
-  }, [boundElderly, selectedDate]);
-
   // 登录界面
   if (!isLoggedIn) {
     return (
@@ -769,81 +792,22 @@ const ChildDashboard = () => {
         )}
         
         {showRegisterModal && (
-          <div className="glass rounded-3xl shadow-xl p-6 sm:p-8 max-w-md w-full mx-4">
-            <div className="text-center mb-6 sm:mb-8">
-              <h1 className="text-2xl sm:text-3xl font-bold text-primary">药记得</h1>
-              <p className="text-gray-500 mt-2">子女监控端注册</p>
-            </div>
-            
-            {registerError && (
-              <div className="bg-red-100 text-danger p-4 rounded-lg mb-6">
-                {registerError}
-              </div>
-            )}
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-2">用户名</label>
-                <div className="relative">
-                  <User size={20} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                  <input
-                    type="text"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    placeholder="请输入用户名"
-                    className="w-full pl-10 pr-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary min-h-[44px]"
-                  />
-                </div>
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium mb-2">密码</label>
-                <div className="relative">
-                  <Lock size={20} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="请输入密码"
-                    className="w-full pl-10 pr-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary min-h-[44px]"
-                  />
-                </div>
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium mb-2">确认密码</label>
-                <div className="relative">
-                  <Lock size={20} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                  <input
-                    type="password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="请再次输入密码"
-                    className="w-full pl-10 pr-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary min-h-[44px]"
-                  />
-                </div>
-              </div>
-              
-              <button
-                onClick={handleRegister}
-                className="elderly-button w-full max-w-md py-3 bg-gradient-to-br from-purple-400 to-purple-600 text-white rounded-3xl font-bold flex items-center justify-center min-h-[56px]"
-              >
-                注册
-              </button>
-              
-              <div className="text-center">
-                <button
-                  onClick={() => {
-                    setShowRegisterModal(false);
-                    setShowLoginModal(true);
-                  }}
-                  className="text-primary hover:underline min-h-[44px] inline-flex items-center"
-                >
-                  已有账号？立即登录
-                </button>
-              </div>
-            </div>
-          </div>
+          <RegistrationFlow
+            role="child"
+            username={username}
+            setUsername={setUsername}
+            password={password}
+            setPassword={setPassword}
+            confirmPassword={confirmPassword}
+            setConfirmPassword={setConfirmPassword}
+            error={registerError}
+            onSubmit={handleRegister}
+            onLogin={() => {
+              setRegisterError('');
+              setShowRegisterModal(false);
+              setShowLoginModal(true);
+            }}
+          />
         )}
         
         {showBindModal && (
@@ -884,15 +848,31 @@ const ChildDashboard = () => {
                 <label className="block text-sm font-medium mb-2">与长者的关系</label>
                 <select
                   value={relationship}
-                  onChange={(e) => setRelationship(e.target.value)}
+                  onChange={(e) => {
+                    setRelationship(e.target.value);
+                    if (e.target.value !== '其他') setCustomRelationship('');
+                  }}
                   className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary min-h-[44px]"
                 >
                   <option value="">请选择关系</option>
-                  <option value="子女">子女</option>
-                  <option value="孙子孙女">孙子孙女</option>
-                  <option value="普通亲戚">普通亲戚</option>
+                  <option value="儿子">儿子</option>
+                  <option value="女儿">女儿</option>
+                  <option value="孙子">孙子</option>
+                  <option value="孙女">孙女</option>
+                  <option value="老伴">老伴</option>
+                  <option value="兄弟">兄弟</option>
+                  <option value="姐妹">姐妹</option>
                   <option value="其他">其他</option>
                 </select>
+                {relationship === '其他' && (
+                  <input
+                    type="text"
+                    value={customRelationship}
+                    onChange={(e) => setCustomRelationship(e.target.value.slice(0, 20))}
+                    placeholder="请填写具体关系"
+                    className="mt-3 w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary min-h-[44px]"
+                  />
+                )}
               </div>
               
               <button
@@ -921,294 +901,33 @@ const ChildDashboard = () => {
   }
   
   return (
-    <div className="w-full min-h-screen bg-animated-background p-4 sm:p-6">
+    <div className="family-app-shell">
       <NotificationModal />
-      <div className="max-w-4xl mx-auto">
-        {/* 头部 */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 sm:mb-8 gap-4 glass rounded-3xl p-6">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-dark">药记得 - 子女监控端</h1>
-            {boundElderly && (
-              <div className="mt-2 text-sm text-gray-600">
-                <Users className="inline mr-1" />
-                监护对象：{boundElderly.realName}（{boundElderly.relationship}）
-              </div>
-            )}
-          </div>
-          <div className="flex items-center gap-3 sm:gap-4">
-            {boundElderly ? (
-              <button
-                onClick={() => setShowBindModal(true)}
-                className="elderly-button flex items-center gap-2 px-4 py-2 sm:py-3 bg-gradient-to-br from-blue-400 to-blue-600 text-white rounded-3xl font-bold min-h-[48px]"
-              >
-                <Link size={16} />
-                重新绑定
-              </button>
-            ) : (
-              <button
-                onClick={() => setShowInviteModal(true)}
-                className="elderly-button flex items-center gap-2 px-4 py-2 sm:py-3 bg-gradient-to-br from-purple-400 to-purple-600 text-white rounded-3xl font-bold min-h-[48px]"
-              >
-                <Users size={16} />
-                加入家庭组
-              </button>
-            )}
-            {/* 药品复核请求数量 */}
-            {boundElderly && reviewRequests.length > 0 && (
-              <button 
-                onClick={() => {
-                  if (reviewRequests.length > 0) {
-                    setCurrentReviewRequest(reviewRequests[0]);
-                    setShowReviewModal(true);
-                  }
-                }}
-                className="flex items-center gap-2 px-4 py-2 sm:py-3 bg-blue-100 rounded-lg text-blue-600 hover:bg-blue-200 transition min-h-[44px] relative"
-              >
-                <Bell size={16} />
-                <span className="text-sm sm:text-base">待复核 ({reviewRequests.length})</span>
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-danger rounded-full flex items-center justify-center text-white text-xs">
-                  {reviewRequests.length}
-                </span>
-              </button>
-            )}
-            <button
-              onClick={() => setShowMessageBoard(!showMessageBoard)}
-              className="relative min-h-[44px] min-w-[44px] flex items-center justify-center hover:bg-gray-100 rounded-lg"
-            >
-              <MessageSquare size={24} className="text-gray-600" />
-              {messageUnreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-danger rounded-full flex items-center justify-center text-white text-xs">
-                  {messageUnreadCount}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setShowSOSNotification(!showSOSNotification)}
-              className="relative min-h-[44px] min-w-[44px] flex items-center justify-center hover:bg-gray-100 rounded-lg"
-            >
-              <AlertTriangle size={24} className={hasSOSAlert ? 'text-red-500 animate-pulse' : 'text-gray-600'} />
-              {hasSOSAlert && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-danger rounded-full flex items-center justify-center text-white text-xs animate-pulse">
-                  !
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setShowMedicationReport(!showMedicationReport)}
-              className="relative min-h-[44px] min-w-[44px] flex items-center justify-center hover:bg-gray-100 rounded-lg"
-            >
-              <Activity size={24} className="text-gray-600" />
-            </button>
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-2 px-4 py-2 sm:py-3 bg-gray-100 rounded-lg text-gray-600 hover:bg-gray-200 min-h-[44px]"
-            >
-              <LogOut size={16} />
-              <span className="text-sm sm:text-base">退出</span>
-            </button>
-          </div>
-        </div>
-
-        {/* 今日服药状态 */}
-        <div className="glass rounded-3xl shadow-lg p-4 sm:p-6 mb-6 sm:mb-8 ambient-glow">
-          <div className="flex items-center mb-6 gap-4">
-            <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-br from-yellow-400 via-orange-400 to-red-500 rounded-full flex items-center justify-center shadow-lg animate-pulse">
-              <Clock size={24} sm:size={32} className="text-white" />
-            </div>
-            <div>
-              <h2 className="text-xl sm:text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 via-orange-400 to-red-500 drop-shadow-lg">
-                今日服药状态
-              </h2>
-              <div className="h-1 w-24 mt-2 bg-gradient-to-r from-yellow-400 via-orange-400 to-red-500 rounded-full shadow-md animate-pulse"></div>
-            </div>
-          </div>
-          
-          {!boundElderly ? (
-            <div className="text-center py-8 sm:py-12">
-              <Users size={36} sm:size={48} className="mx-auto mb-4 text-gray-400" />
-              <p className="text-gray-500">请先加入家庭组</p>
-              <p className="text-sm text-gray-400 mt-2">加入后即可查看长者的用药状态</p>
-              <button
-                onClick={() => setShowInviteModal(true)}
-                className="elderly-button mt-6 px-6 py-3 bg-gradient-to-br from-purple-400 to-purple-600 text-white rounded-3xl font-bold transition min-h-[56px]"
-              >
-                <Users className="inline mr-2" />
-                加入家庭组
-              </button>
-            </div>
-          ) : (
-            <>
-              {/* 添加服药提醒按钮 */}
-              <div className="mb-4 sm:mb-6">
-                <button
-                  onClick={() => {
-                    setEditingMedication(null);
-                    setMedicationForm({ time: '', name: '', dosage: '', usage: '', effect: '', frequency: '' });
-                    setShowMedicationModal(true);
-                  }}
-                  className="elderly-button w-full px-4 py-3 bg-gradient-to-br from-green-400 to-green-600 text-white rounded-3xl font-bold flex items-center justify-center min-h-[56px]"
-                >
-                  <Plus size={16} className="mr-2" />
-                  添加服药提醒
-                </button>
-              </div>
-              
-              {medications.length === 0 ? (
-                <div className="text-center py-8 sm:py-12">
-                  <Clock size={36} sm:size={48} className="mx-auto mb-4 text-gray-400" />
-                  <p className="text-gray-500">暂无用药记录</p>
-                  <p className="text-sm text-gray-400 mt-2">请点击上方按钮添加用药提醒</p>
-                </div>
-              ) : (
-                <div className="space-y-3 sm:space-y-4">
-                  {medications.map((med) => (
-                    <div key={med.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg flex-wrap">
-                      <div className="flex items-center">
-                        <div className="w-10 sm:w-12 h-10 sm:h-12 rounded-full flex items-center justify-center mr-3 sm:mr-4">
-                          {med.status === 'taken' ? (
-                            <CheckCircle size={20} sm:size={24} className="text-secondary" />
-                          ) : med.status === 'missed' ? (
-                            <XCircle size={20} sm:size={24} className="text-danger" />
-                          ) : (
-                            <Clock size={20} sm:size={24} className="text-warning" />
-                          )}
-                        </div>
-                        <div>
-                          <p className="font-medium">{med.name}</p>
-                          <p className="text-sm text-gray-500">{med.time}</p>
-                        </div>
-                      </div>
-                      <div className="mt-2 sm:mt-0 flex items-center gap-2">
-                        <div className={`px-3 py-1 rounded-full text-sm font-medium ${
-                          med.status === 'taken' ? 'bg-green-100 text-secondary' :
-                          med.status === 'missed' ? 'bg-red-100 text-danger' :
-                          'bg-yellow-100 text-warning'
-                        }`}>
-                          {med.status === 'taken' ? '已服用' :
-                           med.status === 'missed' ? '未服用' :
-                           '待服用'}
-                        </div>
-                        {/* 编辑和删除按钮 */}
-                        <button
-                          onClick={() => openEditMedicationModal(med)}
-                          className="p-2 text-primary hover:bg-gray-100 rounded-lg"
-                        >
-                          <Edit size={16} />
-                        </button>
-                        <button
-                          onClick={() => deleteMedication(med.id)}
-                          className="p-2 text-danger hover:bg-gray-100 rounded-lg"
-                        >
-                          <Trash size={16} />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              
-
-            </>
-          )}
-        </div>
-
-        {/* 历史用药记录 */}
-        <div className="glass rounded-3xl shadow-lg p-4 sm:p-6">
-          <div className="flex items-center mb-6 gap-4">
-            <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-br from-blue-400 via-indigo-400 to-purple-500 rounded-full flex items-center justify-center shadow-lg animate-pulse">
-              <Calendar size={24} sm:size={32} className="text-white" />
-            </div>
-            <div>
-              <h2 className="text-xl sm:text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-indigo-400 to-purple-500 drop-shadow-lg">
-                历史用药记录
-              </h2>
-              <div className="h-1 w-24 mt-2 bg-gradient-to-r from-blue-400 via-indigo-400 to-purple-500 rounded-full shadow-md animate-pulse"></div>
-            </div>
-          </div>
-          
-          {!boundElderly ? (
-            <div className="text-center py-8 sm:py-12">
-              <Users size={36} sm:size={48} className="mx-auto mb-4 text-gray-400" />
-              <p className="text-gray-500">请先加入家庭组</p>
-              <p className="text-sm text-gray-400 mt-2">加入后即可查看历史用药记录</p>
-              <button
-                onClick={() => setShowInviteModal(true)}
-                className="elderly-button mt-6 px-6 py-3 bg-gradient-to-br from-purple-400 to-purple-600 text-white rounded-3xl font-bold transition min-h-[56px]"
-              >
-                <Users className="inline mr-2" />
-                加入家庭组
-              </button>
-            </div>
-          ) : (
-            <>
-              {/* 日期选择器 */}
-              <div className="mb-4 sm:mb-6">
-                <label className="block text-sm font-medium mb-2">选择日期</label>
-                <input
-                  type="date"
-                  value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary min-h-[44px]"
-                />
-              </div>
-              
-              {/* 历史记录列表 */}
-              {historyRecords.length === 0 ? (
-                <div className="text-center py-8 sm:py-12">
-                  <Calendar size={36} sm:size={48} className="mx-auto mb-4 text-gray-400" />
-                  <p className="text-gray-500">该日期暂无用药记录</p>
-                </div>
-              ) : (
-                <div className="space-y-3 sm:space-y-4">
-                  {historyRecords.map((record) => (
-                    <div key={record.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                      <div className="flex items-center">
-                        <div className="w-10 h-10 rounded-full flex items-center justify-center mr-3">
-                          {record.status === 'taken' ? (
-                            <CheckCircle size={20} className="text-secondary" />
-                          ) : (
-                            <XCircle size={20} className="text-danger" />
-                          )}
-                        </div>
-                        <div>
-                          <p className="font-medium">{record.name}</p>
-                          <p className="text-sm text-gray-500">{record.time}</p>
-                        </div>
-                      </div>
-                      <div className={`px-3 py-1 rounded-full text-sm font-medium ${
-                        record.status === 'taken' ? 'bg-green-100 text-secondary' :
-                        'bg-red-100 text-danger'
-                      }`}>
-                        {record.status === 'taken' ? '已服用' : '未服用'}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* 提醒列表 */}
-        {reminders.length > 0 && (
-          <div className="fixed top-4 right-4 bg-white p-4 rounded-lg shadow-lg z-50 max-w-xs mx-4">
-            <h3 className="font-bold text-base sm:text-lg mb-2 flex items-center">
-              <Bell className="mr-2 text-warning" />
-              服药提醒
-            </h3>
-            <div className="space-y-2">
-              {reminders.map(reminder => (
-                <div key={reminder.id} className="p-2 bg-yellow-50 rounded border border-yellow-200">
-                  <p className="text-sm">{reminder.message}</p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {new Date(reminder.timestamp).toLocaleString('zh-CN')}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
+      <FamilyCareExperience
+        boundElderly={boundElderly}
+        isLoadingCircle={isLoadingCircle}
+        medications={medications}
+        canManageMedication={canManageMedication}
+        onJoinCircle={() => { setBindError(''); setShowInviteModal(true); }}
+        onAddMedication={() => {
+          setEditingMedication(null);
+          setMedicationForm({ time: '', name: '', dosage: '', usage: '', effect: '', frequency: '' });
+          setShowMedicationModal(true);
+        }}
+        onEditMedication={openEditMedicationModal}
+        currentUserId={currentUserId}
+        messageUnreadCount={messageUnreadCount}
+        onUnreadCountChange={setMessageUnreadCount}
+        alerts={careAlerts}
+        reminders={reminders}
+        reviewRequests={reviewRequests}
+        onOpenSOS={alert => { setSelectedAlertId(alert?.id || null); setShowSOSNotification(true); }}
+        onOpenReview={request => { setCurrentReviewRequest(request); setShowReviewModal(true); }}
+        onLogout={handleLogout}
+        lastSyncedAt={lastSyncedAt}
+        dataSource={dataSource}
+      />
+      <div className="family-app-shell__dialogs">
         {/* 绑定长者模态框 */}
         {showBindModal && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
@@ -1249,15 +968,31 @@ const ChildDashboard = () => {
                   <label className="block text-sm font-medium mb-2">与长者的关系</label>
                   <select
                     value={relationship}
-                    onChange={(e) => setRelationship(e.target.value)}
+                    onChange={(e) => {
+                      setRelationship(e.target.value);
+                      if (e.target.value !== '其他') setCustomRelationship('');
+                    }}
                     className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary min-h-[44px]"
                   >
                     <option value="">请选择关系</option>
-                    <option value="子女">子女</option>
-                    <option value="孙子孙女">孙子孙女</option>
-                    <option value="普通亲戚">普通亲戚</option>
+                    <option value="儿子">儿子</option>
+                    <option value="女儿">女儿</option>
+                    <option value="孙子">孙子</option>
+                    <option value="孙女">孙女</option>
+                    <option value="老伴">老伴</option>
+                    <option value="兄弟">兄弟</option>
+                    <option value="姐妹">姐妹</option>
                     <option value="其他">其他</option>
                   </select>
+                  {relationship === '其他' && (
+                    <input
+                      type="text"
+                      value={customRelationship}
+                      onChange={(e) => setCustomRelationship(e.target.value.slice(0, 20))}
+                      placeholder="请填写具体关系"
+                      className="mt-3 w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary min-h-[44px]"
+                    />
+                  )}
                 </div>
                 
                 <button
@@ -1344,65 +1079,59 @@ const ChildDashboard = () => {
         
         {/* 家庭组邀请模态框 */}
         {showInviteModal && (
-          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl w-full max-w-lg mx-4 overflow-hidden">
-              <div className="bg-primary text-white p-4 flex justify-between items-center">
-                <h2 className="text-xl sm:text-2xl font-bold">加入家庭组</h2>
-                <button 
-                  onClick={() => setShowInviteModal(false)}
-                  className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center"
-                >
-                  <X size={24} />
+          <div className="join-circle-overlay" onClick={() => setShowInviteModal(false)}>
+            <section className="join-circle-dialog" role="dialog" aria-modal="true" aria-labelledby="join-circle-title" onClick={event => event.stopPropagation()}>
+              <button type="button" onClick={() => setShowInviteModal(false)} className="join-circle-dialog__close" aria-label="关闭加入照护圈"><X size={23} /></button>
+              <header className="join-circle-dialog__header">
+                <span className="join-circle-dialog__mark"><Users size={29} /></span>
+                <span className="care-eyebrow">连接家人</span>
+                <h2 id="join-circle-title">加入家人的照护圈</h2>
+                <p>输入长者分享的6位邀请码，加入后即可查看用药计划并接收重要提醒。</p>
+              </header>
+
+              {bindError && <div className="join-circle-error" role="alert">{bindError}</div>}
+
+              <div className="join-circle-form">
+                <label className="join-circle-field join-circle-field--code">
+                  <span><Link size={19} />邀请码</span>
+                  <input type="text" value={inviteCode} onChange={(e) => setInviteCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="请输入6位数字" inputMode="numeric" maxLength={6} autoFocus />
+                  <small>邀请码由长者在“我的－家人”中生成</small>
+                </label>
+
+                <label className="join-circle-field">
+                  <span><Users size={19} />与长者的关系</span>
+                  <select value={relationship} onChange={(e) => { setRelationship(e.target.value); if (e.target.value !== '其他') setCustomRelationship(''); }}>
+                    <option value="">请选择关系</option><option value="儿子">儿子</option><option value="女儿">女儿</option><option value="孙子">孙子</option><option value="孙女">孙女</option><option value="老伴">老伴</option><option value="兄弟">兄弟</option><option value="姐妹">姐妹</option><option value="其他">其他</option>
+                  </select>
+                </label>
+
+                {relationship === '其他' && <label className="join-circle-field"><span>具体关系</span><input type="text" value={customRelationship} onChange={(e) => setCustomRelationship(e.target.value.slice(0, 20))} placeholder="例如：邻居、护工" autoFocus /></label>}
+
+                <fieldset className="join-circle-permission">
+                  <legend><ShieldCheck size={19} />在照护圈中的权限</legend>
+                  <div className="join-circle-permission__options">
+                    <button type="button" className={carePermission === 'viewer' ? 'is-selected' : ''} onClick={() => setCarePermission('viewer')} aria-pressed={carePermission === 'viewer'}>
+                      <span className="join-circle-permission__icon"><Eye size={22} /></span>
+                      <span><strong>观察者</strong><small>查看用药情况和接收提醒</small></span>
+                    </button>
+                    <button type="button" className={carePermission === 'manager' ? 'is-selected' : ''} onClick={() => setCarePermission('manager')} aria-pressed={carePermission === 'manager'}>
+                      <span className="join-circle-permission__icon"><ShieldCheck size={22} /></span>
+                      <span><strong>管理者</strong><small>可查看并管理长者的用药计划</small></span>
+                    </button>
+                  </div>
+                </fieldset>
+
+                <button type="button" onClick={handleJoinFamily} disabled={isJoiningCircle} className="join-circle-submit">
+                  {isJoiningCircle ? '正在确认并同步…' : '确认加入照护圈'}
+                  {!isJoiningCircle && <ChevronRight size={21} />}
                 </button>
               </div>
-              
-              <div className="p-6">
-                <p className="mb-6 text-gray-600">
-                  请输入邀请码加入家庭组，加入后您可以查看老人的用药数据、接收异常通知、设置提醒等。
-                </p>
-                
-                {bindError && (
-                  <div className="bg-red-100 text-danger p-4 rounded-lg mb-6">
-                    {bindError}
-                  </div>
-                )}
-                
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-2">邀请码</label>
-                    <input
-                      type="text"
-                      value={inviteCode}
-                      onChange={(e) => setInviteCode(e.target.value)}
-                      placeholder="请输入邀请码"
-                      className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary min-h-[44px]"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium mb-2">与老人的关系</label>
-                    <select
-                      value={relationship}
-                      onChange={(e) => setRelationship(e.target.value)}
-                      className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary min-h-[44px]"
-                    >
-                      <option value="">请选择关系</option>
-                      <option value="子女">子女</option>
-                      <option value="配偶">配偶</option>
-                      <option value="父母">父母</option>
-                      <option value="其他">其他</option>
-                    </select>
-                  </div>
-                  
-                  <button
-                    onClick={handleJoinFamily}
-                    className="w-full py-3 bg-primary text-white rounded-lg font-medium hover:bg-primary/90 transition min-h-[44px]"
-                  >
-                    加入家庭组
-                  </button>
-                </div>
-              </div>
-            </div>
+              <p className="join-circle-dialog__note">{
+                carePermission === 'manager'
+                  ? '管理者可以协助维护用药计划，操作记录会同步给家人。'
+                  : '观察者只查看信息和接收提醒，不会修改长者的药品。'
+              }</p>
+            </section>
           </div>
         )}
         
@@ -1517,49 +1246,18 @@ const ChildDashboard = () => {
           </div>
         )}
 
-        {/* 留言板 */}
-        {showMessageBoard && (
-          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-auto mx-4">
-              <div className="bg-primary text-white p-4 flex justify-between items-center">
-                <h2 className="text-xl sm:text-2xl font-bold flex items-center">
-                  <MessageSquare size={24} className="mr-2" />
-                  留言板
-                </h2>
-                <button 
-                  onClick={() => setShowMessageBoard(false)}
-                  className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center"
-                >
-                  <X size={24} />
-                </button>
-              </div>
-              <div className="p-6">
-                <MessageBoard 
-                  userType="child"
-                  userId={currentUserId}
-                  recipientId={currentElderlyId}
-                  onUnreadCountChange={setMessageUnreadCount}
-                />
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* SOS紧急求助通知 */}
         {showSOSNotification && (
           <SOSNotification 
             isOpen={showSOSNotification}
             onClose={() => setShowSOSNotification(false)}
             onOpen={() => setShowSOSNotification(true)}
+            remoteAlerts={careAlerts.filter(alert => alert.type === 'sos' && alert.status === 'pending')}
+            selectedAlertId={selectedAlertId}
+            onHandled={id => setCareAlerts(current => current.filter(alert => alert.id !== id))}
           />
         )}
         
-        {/* 服药报告 */}
-        <MedicationReport 
-          isOpen={showMedicationReport}
-          onClose={() => setShowMedicationReport(false)}
-          boundElderly={boundElderly}
-        />
       </div>
     </div>
   );
