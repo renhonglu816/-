@@ -16,6 +16,7 @@ import authRoutes from './routes/auth.js';
 import reviewRoutes from './routes/reviews.js';
 import sosRoutes from './routes/sos.js';
 import aiRoutes from './routes/ai.js';
+import { isSupabaseAuthConfigured } from './utils/supabase.js';
 
 // 导入服务
 import WebSocketService from './utils/websocket.js';
@@ -61,7 +62,11 @@ app.use('/api/ai', aiRoutes);
 
 // 健康检查
 app.get('/api/health', (req, res) => {
-  res.status(200).json({ status: 'ok' });
+  res.status(200).json({
+    status: 'ok',
+    release: 'supabase-auth-v1',
+    authConfigured: isSupabaseAuthConfigured,
+  });
 });
 
 // 404 处理
