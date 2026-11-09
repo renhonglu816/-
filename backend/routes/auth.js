@@ -1,19 +1,39 @@
 import express from 'express';
 const router = express.Router();
 import verifyIdentity from '../utils/verifyIdentity.js';
-import supabase, { isSupabaseConfigured } from '../utils/supabase.js';
+import supabase, {
+  createAuthClient,
+  isSupabaseAuthConfigured,
+  isSupabaseConfigured,
+} from '../utils/supabase.js';
 import authMiddleware from '../middleware/auth.js';
 
-const requireMockAuthEnabled = (_req, res, next) => {
-  if (process.env.ALLOW_MOCK_AUTH === 'true') return next();
-  return res.status(501).json({
+const requirePasswordAuth = (_req, res, next) => {
+  if (process.env.ALLOW_MOCK_AUTH === 'true' || isSupabaseAuthConfigured) {
+    return next();
+  }
+  return res.status(503).json({
     success: false,
-    error: '账号密码认证尚未接入；请配置 Supabase Auth，或仅在本地演示时启用 ALLOW_MOCK_AUTH'
+    error: '账号服务尚未完成配置，请联系管理员'
   });
 };
 
+const normalizeUsername = (value) => String(value || '').trim();
+const usernamePattern = /^[A-Za-z0-9_\-\u4e00-\u9fa5]{3,20}$/;
+
+const createInternalEmail = () => {
+  const id = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+  return `u-${id.replace(/[^a-zA-Z0-9]/g, '')}@auth.yaojide.invalid`;
+};
+
+const signInUser = async (email, password) => {
+  const authClient = createAuthClient();
+  if (!authClient) return { data: null, error: new Error('账号服务不可用') };
+  return authClient.auth.signInWithPassword({ email, password });
+};
+
 // 登录
-router.post('/login', requireMockAuthEnabled, async (req, res) => {
+router.post('/login', requirePasswordAuth, async (req, res) => {
   try {
     const { username, password } = req.body;
 
@@ -24,29 +44,42 @@ router.post('/login', requireMockAuthEnabled, async (req, res) => {
       });
     }
 
-    if (!isSupabaseConfigured) {
-      return res.status(503).json({ success: false, error: '账号服务暂不可用' });
-    }
-
-    // 账号角色只从数据库读取，登录端不能自行指定或切换角色。
+    const normalizedUsername = normalizeUsername(username);
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('*')
-      .eq('username', username.trim())
-      .single();
+      .eq('username', normalizedUsername)
+      .maybeSingle();
 
     if (profileError || !profile) {
       return res.status(401).json({ success: false, error: '账号不存在或密码错误' });
     }
 
-    // 生成令牌
-    const token = `mock-token-${username}-${Date.now()}`;
+    if (process.env.ALLOW_MOCK_AUTH === 'true' && !isSupabaseAuthConfigured) {
+      const token = `mock-token-${normalizedUsername}-${Date.now()}`;
+      return res.status(200).json({ success: true, data: { user: profile, token } });
+    }
+
+    const { data: authUserData, error: authUserError } =
+      await supabase.auth.admin.getUserById(profile.id);
+    const email = authUserData?.user?.email;
+    if (authUserError || !email) {
+      return res.status(409).json({
+        success: false,
+        error: '该账号来自旧版演示数据，请联系管理员迁移账号'
+      });
+    }
+
+    const { data: authData, error: signInError } = await signInUser(email, password);
+    if (signInError || !authData?.session?.access_token) {
+      return res.status(401).json({ success: false, error: '账号不存在或密码错误' });
+    }
 
     res.status(200).json({
       success: true,
       data: {
         user: profile,
-        token
+        token: authData.session.access_token
       }
     });
   } catch (error) {
@@ -59,7 +92,7 @@ router.post('/login', requireMockAuthEnabled, async (req, res) => {
 });
 
 // 注册
-router.post('/register', requireMockAuthEnabled, async (req, res) => {
+router.post('/register', requirePasswordAuth, async (req, res) => {
   try {
     const { username, password, real_name, id_card, role } = req.body;
 
@@ -82,12 +115,22 @@ router.post('/register', requireMockAuthEnabled, async (req, res) => {
       return res.status(503).json({ success: false, error: '账号服务暂不可用' });
     }
 
-    const normalizedUsername = username.trim();
-    const { data: existingProfile } = await supabase
+    const normalizedUsername = normalizeUsername(username);
+    if (!usernamePattern.test(normalizedUsername)) {
+      return res.status(400).json({
+        success: false,
+        error: '用户名需为3到20位中文、字母、数字、下划线或短横线'
+      });
+    }
+
+    const { data: existingProfile, error: existingProfileError } = await supabase
       .from('profiles')
       .select('id')
       .eq('username', normalizedUsername)
-      .single();
+      .maybeSingle();
+    if (existingProfileError) {
+      throw existingProfileError;
+    }
     if (existingProfile) {
       return res.status(409).json({ success: false, error: '该用户名已被注册' });
     }
@@ -100,17 +143,47 @@ router.post('/register', requireMockAuthEnabled, async (req, res) => {
       }
     }
 
-    // 生成合法 UUID（与 Supabase profiles/medications 等表对齐）
-    const newUserId = globalThis.crypto?.randomUUID?.() ||
-      'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-        const r = Math.random() * 16 | 0;
-        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    if (process.env.ALLOW_MOCK_AUTH === 'true' && !isSupabaseAuthConfigured) {
+      const newUserId = globalThis.crypto?.randomUUID?.();
+      const { data: mockUser, error: mockInsertError } = await supabase
+        .from('profiles')
+        .insert({
+          id: newUserId,
+          username: normalizedUsername,
+          role,
+          real_name: real_name || normalizedUsername,
+          id_card: id_card || null
+        })
+        .select('*')
+        .single();
+      if (mockInsertError || !mockUser) {
+        return res.status(503).json({ success: false, error: '账号创建失败，请稍后重试' });
+      }
+      return res.status(201).json({
+        success: true,
+        data: { user: mockUser, token: `mock-token-${normalizedUsername}-${Date.now()}` }
       });
+    }
+
+    const internalEmail = createInternalEmail();
+    const { data: createdAuthData, error: createAuthError } =
+      await supabase.auth.admin.createUser({
+        email: internalEmail,
+        password,
+        email_confirm: true,
+        user_metadata: { username: normalizedUsername, role }
+      });
+
+    const authUser = createdAuthData?.user;
+    if (createAuthError || !authUser) {
+      console.error('[auth/register] Supabase Auth 创建失败:', createAuthError?.message);
+      return res.status(503).json({ success: false, error: '账号创建失败，请稍后重试' });
+    }
 
     const { data: newUser, error: insertError } = await supabase
       .from('profiles')
       .insert({
-        id: newUserId,
+        id: authUser.id,
         username: normalizedUsername,
         role,
         real_name: real_name || normalizedUsername,
@@ -121,17 +194,21 @@ router.post('/register', requireMockAuthEnabled, async (req, res) => {
 
     if (insertError || !newUser) {
       console.error('[auth/register] profiles 写入失败:', insertError?.message);
+      await supabase.auth.admin.deleteUser(authUser.id).catch(() => {});
       return res.status(503).json({ success: false, error: '账号创建失败，请稍后重试' });
     }
 
-    // 生成令牌
-    const token = `mock-token-${username}-${Date.now()}`;
+    const { data: authData, error: signInError } = await signInUser(internalEmail, password);
+    if (signInError || !authData?.session?.access_token) {
+      console.error('[auth/register] 新账号登录失败:', signInError?.message);
+      return res.status(503).json({ success: false, error: '账号已创建，请重新登录' });
+    }
 
     res.status(201).json({
       success: true,
       data: {
         user: newUser,
-        token
+        token: authData.session.access_token
       }
     });
   } catch (error) {
@@ -170,8 +247,12 @@ router.put('/profile', authMiddleware, async (req, res) => {
       .single();
     if (updateError || !profile) throw updateError || new Error('账号资料更新失败');
 
-    const token = `mock-token-${username}-${Date.now()}`;
-    res.status(200).json({ success: true, data: { user: profile, token } });
+    if (isSupabaseAuthConfigured) {
+      await supabase.auth.admin.updateUserById(req.profile.id, {
+        user_metadata: { username }
+      });
+    }
+    res.status(200).json({ success: true, data: { user: profile } });
   } catch (error) {
     console.error('Update profile error:', error);
     res.status(500).json({ success: false, error: '暂时无法修改用户名' });

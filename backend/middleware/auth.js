@@ -13,6 +13,7 @@ const authMiddleware = async (req, res, next) => {
     }
 
     const token = authHeader.substring(7);
+    req.authToken = token;
 
     // mock auth 优先判断：ALLOW_MOCK_AUTH=true 且 token 以 mock-token- 开头时，
     // 无论 Supabase 是否已配置都放行（用于本地联调）
