@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import wsClient from '../utils/websocketClient';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+
 const NotificationModal = () => {
   const [notifications, setNotifications] = useState([]);
   const [showModal, setShowModal] = useState(false);
@@ -76,7 +78,7 @@ const NotificationModal = () => {
 
   const handleMarkTaken = async (reminderLogId) => {
     try {
-      const response = await fetch(`http://localhost:3001/api/reminders/${reminderLogId}/take`, {
+      const response = await fetch(`${API_BASE_URL}/reminders/${reminderLogId}/take`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
