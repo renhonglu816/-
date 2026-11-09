@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Check, Clock, Pill, X } from 'lucide-react';
 import XiaoNuan from '../XiaoNuan';
+import { speakChinese, stopSpeech } from '../../utils/speech';
 
 const MedicationReminder = ({ isOpen, onClose, medication, onConfirm, onSnooze }) => {
   const audioContextRef = useRef(null);
@@ -21,6 +22,7 @@ const MedicationReminder = ({ isOpen, onClose, medication, onConfirm, onSnooze }
   const playSoothingMusic = () => {
     // 创建音频上下文
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    ctx.resume?.().catch(() => {});
     audioContextRef.current = ctx;
     
     // 创建 oscillator
@@ -64,19 +66,9 @@ const MedicationReminder = ({ isOpen, onClose, medication, onConfirm, onSnooze }
   };
 
   const speakReminder = () => {
-    if ('speechSynthesis' in window) {
-      const utterance = new SpeechSynthesisUtterance();
-      utterance.text = `您好，现在是服药时间，请服用${medication?.name || '药品'}，剂量为${medication?.dosage || '标准剂量'}。`;
-      utterance.lang = 'zh-CN';
-      utterance.volume = 1;
-      utterance.rate = 0.9;
-      utterance.pitch = 1;
-      
-      // 等待音乐开始后再播放语音
-      speechTimerRef.current = setTimeout(() => {
-        window.speechSynthesis.speak(utterance);
-      }, 1000);
-    }
+    speechTimerRef.current = setTimeout(() => {
+      speakChinese(`您好，现在是服药时间，请服用${medication?.name || '药品'}，剂量为${medication?.dosage || '标准剂量'}。`);
+    }, 1000);
   };
 
   const stopAllAudio = () => {
@@ -103,9 +95,7 @@ const MedicationReminder = ({ isOpen, onClose, medication, onConfirm, onSnooze }
     }
     
     // 停止语音
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
+    stopSpeech();
     
   };
 

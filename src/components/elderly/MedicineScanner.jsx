@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import XiaoNuan from '../XiaoNuan';
 import { ArrowLeft, Camera, CheckCircle, RefreshCw, Plus, Volume2, VolumeX, X, Image, Package } from 'lucide-react';
 import { requestAICompletion } from '../../services/ai';
+import { cleanAIText } from '../../utils/text';
+import { speakChinese, stopSpeech } from '../../utils/speech';
 
-const MedicineScanner = ({ isOpen, onClose, onAddMedication, onSelectMedicine, isLoggedIn, pageMode = false, backLabel = '返回今日用药' }) => {
+const MedicineScanner = ({ isOpen, onClose, onAddMedication, onSelectMedicine, isLoggedIn, pageMode = false, overlayMode = false, backLabel = '返回今日用药' }) => {
   const [step, setStep] = useState('init');
   const [recognitionResult, setRecognitionResult] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
@@ -13,25 +15,17 @@ const MedicineScanner = ({ isOpen, onClose, onAddMedication, onSelectMedicine, i
   const [errorMessage, setErrorMessage] = useState('');
 
   const speakText = (text) => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'zh-CN';
-      utterance.rate = 0.9;
-      
-      utterance.onstart = () => setIsSpeaking(true);
-      utterance.onend = () => setIsSpeaking(false);
-      utterance.onerror = () => setIsSpeaking(false);
-      
-      window.speechSynthesis.speak(utterance);
-    }
+    const started = speakChinese(cleanAIText(text), {
+      onStart: () => setIsSpeaking(true),
+      onEnd: () => setIsSpeaking(false),
+      onError: () => setIsSpeaking(false),
+    });
+    if (!started) setIsSpeaking(false);
   };
 
   const stopSpeaking = () => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      setIsSpeaking(false);
-    }
+    stopSpeech();
+    setIsSpeaking(false);
   };
 
   const recognizeMedicineWithAI = async (imageData) => {
@@ -65,7 +59,7 @@ const MedicineScanner = ({ isOpen, onClose, onAddMedication, onSelectMedicine, i
         temperature: 0.1,
         max_tokens: 300,
       });
-      const aiResponse = data.choices?.[0]?.message?.content;
+      const aiResponse = cleanAIText(data.choices?.[0]?.message?.content);
       if (!aiResponse) throw new Error('AI 返回内容为空');
       
       // 解析 AI 响应，提取药品信息 - 优化版
@@ -197,11 +191,12 @@ const MedicineScanner = ({ isOpen, onClose, onAddMedication, onSelectMedicine, i
   };
 
   if (!isOpen) return null;
+  const pageRootClass = overlayMode ? 'feature-page feature-page--scanner-overlay' : 'feature-page';
   const pageBack = pageMode && <button type="button" onClick={handleClose} className="scanner-page__back" aria-label={backLabel}><ArrowLeft size={24} /></button>;
 
   if (step === 'init') {
     return (
-      <div className={pageMode ? 'feature-page' : 'scanner-modal fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4'}>
+      <div className={pageMode ? pageRootClass : 'scanner-modal fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4'}>
         <div className={`${pageMode ? 'feature-page__surface' : 'bg-white rounded-2xl w-full max-w-lg mx-4 overflow-hidden'} scanner-page`}>
           <div className="feature-page__header scanner-page__header">
             <div>
@@ -242,7 +237,7 @@ const MedicineScanner = ({ isOpen, onClose, onAddMedication, onSelectMedicine, i
 
   if (step === 'preview') {
     return (
-      <div className={pageMode ? 'feature-page' : 'scanner-modal fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4'}>
+      <div className={pageMode ? pageRootClass : 'scanner-modal fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4'}>
         <div className={`${pageMode ? 'feature-page__surface' : 'bg-white rounded-2xl w-full max-w-lg mx-4 overflow-hidden'} scanner-page`}>
           <div className="feature-page__header scanner-page__header scanner-page__header--compact">
             <div>
@@ -295,7 +290,7 @@ const MedicineScanner = ({ isOpen, onClose, onAddMedication, onSelectMedicine, i
 
   if (step === 'loading') {
     return (
-      <div className={pageMode ? 'feature-page feature-page--loading scanner-loading flex flex-col items-center justify-center' : 'fixed inset-0 bg-primary flex flex-col items-center justify-center z-50'}>
+      <div className={pageMode ? `${pageRootClass} feature-page--loading scanner-loading flex flex-col items-center justify-center` : 'fixed inset-0 bg-primary flex flex-col items-center justify-center z-50'}>
         <div className="scanner-loading__card" role="status" aria-live="polite">
           <div className="scanner-loading__visual" aria-hidden="true">
             <span className="scanner-loading__corner scanner-loading__corner--tl" />
@@ -322,7 +317,7 @@ const MedicineScanner = ({ isOpen, onClose, onAddMedication, onSelectMedicine, i
 
   if (step === 'result' && recognitionResult) {
     return (
-      <div className={pageMode ? 'feature-page scanner-result-page' : 'scanner-modal scanner-result-page fixed inset-0 bg-light flex items-center justify-center z-50 p-4'}>
+      <div className={pageMode ? `${pageRootClass} scanner-result-page` : 'scanner-modal scanner-result-page fixed inset-0 bg-light flex items-center justify-center z-50 p-4'}>
         <div className={`${pageMode ? 'feature-page__surface' : 'bg-white rounded-2xl w-full max-w-lg overflow-hidden mx-4'} scanner-page scanner-result-page__surface`}>
           <div className="feature-page__header scanner-page__header scanner-page__header--compact scanner-result-header">
             <div>

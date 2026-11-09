@@ -1,12 +1,16 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AlertTriangle, MapPin, Clock, X, Check, ExternalLink, Pill } from 'lucide-react';
 import { useCrossWindowSync, SYNC_EVENTS } from '../../hooks/useCrossWindowSync';
 import dataAdapter from '../../services/dataAdapter';
+import { speakChinese } from '../../utils/speech';
 
 const SOSNotification = ({ onClose, onOpen, onHandled, remoteAlerts = [], selectedAlertId }) => {
   const [alerts, setAlerts] = useState([]);
   const [currentAlert, setCurrentAlert] = useState(null);
   const [showDetail, setShowDetail] = useState(false);
+  const [isHolding, setIsHolding] = useState(false);
+  const [handlingAlertId, setHandlingAlertId] = useState(null);
+  const holdTimerRef = useRef(null);
 
   // 获取当前用户的统一函数
   const getCurrentUser = () => {
@@ -52,24 +56,17 @@ const SOSNotification = ({ onClose, onOpen, onHandled, remoteAlerts = [], select
   });
 
   const playAlertSound = (alert) => {
-    if ('speechSynthesis' in window) {
-      const utterance = new SpeechSynthesisUtterance();
-      if (alert.type === 'sos') {
-        utterance.text = '紧急求助！您的家人发送了紧急求助信号，请立即查看！';
-      } else if (alert.type === 'missed') {
-        utterance.text = `注意！${alert.elderlyName}的药品漏服了，请及时提醒！`;
-      }
-      utterance.lang = 'zh-CN';
-      utterance.volume = 1;
-      utterance.rate = 1;
-      window.speechSynthesis.speak(utterance);
-    }
+    const text = alert.type === 'sos'
+      ? '紧急求助！您的家人发送了紧急求助信号，请立即查看！'
+      : `注意！${alert.elderlyName}的药品漏服了，请及时提醒！`;
+    speakChinese(text, { rate: 1 });
   };
 
   // 播放防空警报效果（音量大、持续久、震撼）
   const playLoudAlarm = () => {
     try {
       const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      audioContext.resume?.().catch(() => {});
       
       // 创建真正的防空警报效果
       const playAirRaidAlarm = () => {
@@ -152,12 +149,15 @@ const SOSNotification = ({ onClose, onOpen, onHandled, remoteAlerts = [], select
   }, [alerts, currentAlert, onOpen]);
 
   const handleMarkAsRead = async (alertId) => {
+    if (handlingAlertId) return;
+    setHandlingAlertId(alertId);
     if (remoteAlerts.some(alert => alert.id === alertId)) {
       try {
         await dataAdapter.markSOSHandled(alertId);
       } catch (error) {
         console.error('处理紧急求助失败:', error);
         alert('暂时无法标记为已处理，请稍后重试');
+        setHandlingAlertId(null);
         return;
       }
     }
@@ -182,7 +182,31 @@ const SOSNotification = ({ onClose, onOpen, onHandled, remoteAlerts = [], select
       setShowDetail(false);
       if (onClose) onClose();
     }
+    setHandlingAlertId(null);
   };
+
+  const cancelHold = () => {
+    if (holdTimerRef.current) window.clearTimeout(holdTimerRef.current);
+    holdTimerRef.current = null;
+    setIsHolding(false);
+  };
+
+  const startHold = event => {
+    if (currentAlert.type !== 'sos' || handlingAlertId) return;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    cancelHold();
+    setIsHolding(true);
+    holdTimerRef.current = window.setTimeout(() => {
+      holdTimerRef.current = null;
+      setIsHolding(false);
+      navigator.vibrate?.(45);
+      handleMarkAsRead(currentAlert.id);
+    }, 1200);
+  };
+
+  useEffect(() => () => {
+    if (holdTimerRef.current) window.clearTimeout(holdTimerRef.current);
+  }, []);
 
   const handleMarkAllAsRead = async () => {
     try {
@@ -350,15 +374,22 @@ const SOSNotification = ({ onClose, onOpen, onHandled, remoteAlerts = [], select
             </div>
           )}
 
-          <div className="flex gap-3">
+          <div className="sos-action-row">
             <button
-              onClick={() => handleMarkAsRead(currentAlert.id)}
-              className="flex-1 py-3 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition"
+              type="button"
+              onClick={() => { if (currentAlert.type !== 'sos') handleMarkAsRead(currentAlert.id); }}
+              onPointerDown={startHold}
+              onPointerUp={cancelHold}
+              onPointerCancel={cancelHold}
+              onPointerLeave={cancelHold}
+              onContextMenu={event => event.preventDefault()}
+              disabled={Boolean(handlingAlertId)}
+              className={`sos-hold-button ${isHolding ? 'is-holding' : ''}`}
             >
               <Check size={20} className="inline mr-2" />
-              {currentAlert.type === 'sos' ? '已联系，标记已处理' : '已知晓，标记已处理'}
+              {handlingAlertId === currentAlert.id ? '正在处理…' : currentAlert.type === 'sos' ? (isHolding ? '继续按住…' : '长按-标记已处理') : '已知晓，标记已处理'}
             </button>
-            <button type="button" onClick={onClose} className="flex-1 py-3 bg-green-500 text-white rounded-lg font-medium hover:bg-green-600 transition">稍后处理</button>
+            <button type="button" onClick={onClose} className="sos-later-button">稍后处理</button>
           </div>
 
           {alerts.length > 1 && (

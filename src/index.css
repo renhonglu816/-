@@ -452,6 +452,120 @@ input, select, textarea { color: var(--care-ink); background: #fff; border-color
   .scanner-result-hero__preview { width: 66px; height: 66px; flex-basis: 66px; }
 }
 
+/* 2026-11 移动端交互与全屏层级适配 */
+.feature-page--scanner-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 180;
+  min-height: 100dvh;
+  max-height: 100dvh;
+  padding: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: #fffaf3;
+}
+.feature-page--scanner-overlay .feature-page__surface { min-height: 100dvh; padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
+.advisor-picker-backdrop {
+  inset: 0;
+  z-index: 170;
+  padding-top: env(safe-area-inset-top);
+  overscroll-behavior: contain;
+}
+.advisor-picker { max-height: min(86dvh, 720px); padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
+.advisor-page__mascot-name picture { display: contents; }
+.advisor-page__medication-picker span { min-width: 0; }
+.advisor-page__medication-picker strong { display: block; overflow: visible; white-space: normal; line-height: 1.2; }
+
+/* 家庭端标题采用统一的暖橙视觉，不再像普通文本。 */
+.family-page-title,
+.family-contact-header,
+.my-page__header,
+.family-report-page__header,
+.profile-editor-page__header {
+  position: relative;
+  border-bottom: 1px solid rgba(226, 186, 147, .58);
+  background: linear-gradient(135deg, rgba(255,253,249,.98), rgba(255,241,224,.9));
+  box-shadow: 0 7px 22px rgba(116, 76, 39, .07);
+}
+.family-page-title::after,
+.family-contact-header::after,
+.my-page__header::after {
+  content: "";
+  position: absolute;
+  left: .15rem;
+  bottom: .2rem;
+  width: 42px;
+  height: 3px;
+  border-radius: 999px;
+  background: #f19a38;
+}
+.family-page-title h1,
+.family-contact-header h1,
+.my-page__header h1,
+.family-report-page__header h2,
+.profile-editor-page__header h1 { color: #40291d; font-weight: 900; letter-spacing: -.035em; }
+.family-page-title .care-eyebrow { color: #b95129; }
+
+.sos-action-row { display: grid; grid-template-columns: 1.18fr .82fr; gap: .75rem; }
+.sos-hold-button,
+.sos-later-button { position: relative; min-height: 58px; overflow: hidden; padding: .75rem; border-radius: 14px; font-weight: 850; touch-action: none; }
+.sos-hold-button { color: white; background: #20b85b; box-shadow: 0 8px 18px rgba(32,184,91,.2); }
+.sos-hold-button::after { content: ""; position: absolute; inset: 0; width: 0; background: rgba(255,255,255,.22); pointer-events: none; }
+.sos-hold-button.is-holding::after { width: 100%; transition: width 1.2s linear; }
+.sos-hold-button:disabled { opacity: .72; }
+.sos-later-button { color: #5f6670; background: #e7e9ed; }
+
+@media (hover: none), (pointer: coarse) {
+  button, [role="button"], label[for] {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  .physical-compartment,
+  .pill-slot,
+  .care-nav-button,
+  .today-pill-box__actions button,
+  .advisor-page__tool-options button,
+  .advisor-composer button,
+  .scanner-primary-button,
+  .scanner-secondary-button,
+  .family-primary-button {
+    transition: transform .1s ease, filter .1s ease, box-shadow .1s ease;
+  }
+  .physical-compartment:active,
+  .pill-slot:active:not(:disabled) { transform: scale(.975); filter: brightness(.97); box-shadow: inset 0 3px 8px rgba(108,77,43,.14); }
+  .care-nav-button:active,
+  .today-pill-box__actions button:active,
+  .advisor-page__tool-options button:active,
+  .advisor-composer button:active,
+  .scanner-primary-button:active,
+  .scanner-secondary-button:active,
+  .family-primary-button:active { transform: scale(.95); filter: brightness(.96); }
+  .care-bottom-nav button:hover,
+  .care-nav-button:hover,
+  .pill-slot:hover:not(:disabled) { transform: none; }
+}
+
+@media (max-width: 600px) {
+  .care-bottom-nav__items { min-height: 76px; padding-inline: .4rem; }
+  .care-nav-button { min-height: 62px; border-radius: 14px; }
+  .care-nav-button__icon { width: 40px; height: 40px; }
+  .care-nav-button strong { font-size: .78rem; }
+  .physical-pill-box { gap: 8px; padding: 17px 12px 28px; border-radius: 29px; }
+  .physical-compartment { min-height: clamp(150px, 31dvh, 200px); border-radius: 21px; }
+  .pill-compartment-overlay { inset: 48px 0 0; padding: .55rem; border-radius: 22px; }
+  .pill-compartment-sheet { max-height: calc(100% - .4rem); padding: .8rem; }
+  .advisor-page.is-welcome .advisor-page__tool-options button { min-width: 0; padding-inline: .35rem; }
+  .advisor-page.is-welcome .advisor-page__tool-options button > svg:last-child { width: 16px; }
+  .advisor-page.is-welcome .advisor-page__medication-picker strong { font-size: clamp(.78rem, 3.5vw, .92rem); }
+  .advisor-page.is-welcome .advisor-page__medication-picker small { font-size: .7rem; }
+  .family-page-title,
+  .family-contact-header { margin-inline: -.2rem; padding: .65rem .75rem; border-radius: 0 0 18px 18px; }
+  .family-page-title { min-height: 66px; }
+  .family-contact-header { min-height: 72px; }
+  .sos-action-row { grid-template-columns: 1fr; }
+  .sos-hold-button, .sos-later-button { min-height: 54px; }
+}
+
 /* 服药提醒：手机优先的紧凑提醒卡。 */
 .medication-reminder-layer {
   position: fixed;

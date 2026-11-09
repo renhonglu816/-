@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AlertTriangle, Phone, MapPin, Mic, X, Check } from 'lucide-react';
 import { useCrossWindowSync, SYNC_EVENTS } from '../../hooks/useCrossWindowSync';
+import { speakChinese, stopSpeech } from '../../utils/speech';
 
 const SOSAlert = ({ isOpen, onClose, onConfirm, elderlyInfo }) => {
   const [countdown, setCountdown] = useState(10);
@@ -123,14 +124,7 @@ const SOSAlert = ({ isOpen, onClose, onConfirm, elderlyInfo }) => {
     alerts.push(sosAlert);
     localStorage.setItem('sosAlerts', JSON.stringify(alerts));
 
-    if ('speechSynthesis' in window) {
-      const utterance = new SpeechSynthesisUtterance();
-      utterance.text = `紧急求助已发出，正在通知您的家人和紧急联系人`;
-      utterance.lang = 'zh-CN';
-      utterance.volume = 1;
-      utterance.rate = 1;
-      window.speechSynthesis.speak(utterance);
-    }
+    speakChinese('紧急求助已发出，正在通知您的家人和紧急联系人', { rate: 1 });
 
     notifyChildren(sosAlert);
 
@@ -214,9 +208,7 @@ const SOSAlert = ({ isOpen, onClose, onConfirm, elderlyInfo }) => {
   };
 
   const handleConfirmSOS = () => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
+    stopSpeech();
     onConfirm();
     onClose();
   };

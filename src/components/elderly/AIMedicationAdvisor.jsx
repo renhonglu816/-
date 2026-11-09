@@ -4,6 +4,8 @@ import { requestAICompletion } from '../../services/ai';
 import MedicineScanner from './MedicineScanner';
 import XiaoNuan from '../XiaoNuan';
 import { brandAsset } from '../../utils/assets';
+import { cleanAIText } from '../../utils/text';
+import { speakChinese, stopSpeech } from '../../utils/speech';
 
 const suggestions = ['这几种药能一起吃吗？', '忘记吃药该怎么办？', '用药期间要注意什么？'];
 const emptyMessages = [];
@@ -51,6 +53,7 @@ const AIMedicationAdvisor = ({ isOpen, onClose, currentMedications = [], pageMod
   const [scannerOpen, setScannerOpen] = useState(false);
   const [selectedMedication, setSelectedMedication] = useState(null);
   const recognitionRef = useRef(null);
+  const inputRef = useRef(null);
   const conversationRef = useRef(null);
   const mascotVideoRef = useRef(null);
   const lastPlayedReplayTokenRef = useRef(0);
@@ -87,7 +90,7 @@ const AIMedicationAdvisor = ({ isOpen, onClose, currentMedications = [], pageMod
     if (!isOpen) {
       recognitionRef.current?.stop();
       recognitionRef.current = null;
-      window.speechSynthesis?.cancel();
+      stopSpeech();
       setIsListening(false);
       setSpeakingId(null);
       setPickerOpen(false);
@@ -97,12 +100,19 @@ const AIMedicationAdvisor = ({ isOpen, onClose, currentMedications = [], pageMod
   }, [isOpen]);
 
   useEffect(() => {
+    if (!pickerOpen && !scannerOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, [pickerOpen, scannerOpen]);
+
+  useEffect(() => {
     const conversation = conversationRef.current;
     if (conversation) conversation.scrollTop = conversation.scrollHeight;
   }, [messages, isProcessing]);
 
   const stopSpeaking = () => {
-    window.speechSynthesis?.cancel();
+    stopSpeech();
     setSpeakingId(null);
   };
 
@@ -132,34 +142,44 @@ const AIMedicationAdvisor = ({ isOpen, onClose, currentMedications = [], pageMod
       return;
     }
     stopSpeaking();
-    const utterance = new SpeechSynthesisUtterance(message.content);
-    utterance.lang = 'zh-CN';
-    utterance.rate = 0.9;
-    utterance.onend = () => setSpeakingId(null);
-    utterance.onerror = () => setSpeakingId(null);
     setSpeakingId(message.id);
-    window.speechSynthesis.speak(utterance);
+    const started = speakChinese(cleanAIText(message.content), {
+      onEnd: () => setSpeakingId(null),
+      onError: () => { setSpeakingId(null); setNotice('语音播报暂时失败，请再点一次。'); },
+    });
+    if (!started) setSpeakingId(null);
   };
 
-  const toggleListening = () => {
+  const toggleListening = async () => {
     if (isListening) {
       recognitionRef.current?.stop();
       return;
     }
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      setNotice('当前浏览器暂不支持语音输入，请打字提问。');
+      setNotice('当前浏览器未开放语音识别，请使用系统键盘的麦克风输入。');
+      inputRef.current?.focus({ preventScroll: false });
       return;
     }
     stopSpeaking();
     setNotice('');
+    try {
+      if (navigator.mediaDevices?.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(track => track.stop());
+      }
+    } catch (_error) {
+      setNotice('请允许麦克风权限后再试。');
+      return;
+    }
     const recognition = new SpeechRecognition();
     recognition.lang = 'zh-CN';
-    recognition.interimResults = false;
+    recognition.interimResults = true;
+    recognition.continuous = false;
     recognition.maxAlternatives = 1;
     recognition.onresult = event => {
-      const transcript = event.results?.[0]?.[0]?.transcript?.trim();
-      if (transcript) setInputText(transcript);
+      const transcript = Array.from(event.results || []).map(result => result?.[0]?.transcript || '').join('').trim();
+      if (transcript) setInputText(cleanAIText(transcript));
     };
     recognition.onerror = event => {
       if (event.error !== 'aborted') setNotice('没有听清，请再试一次或打字提问。');
@@ -210,7 +230,7 @@ const AIMedicationAdvisor = ({ isOpen, onClose, currentMedications = [], pageMod
         ],
         temperature: 0.2,
       });
-      const answer = data.choices?.[0]?.message?.content;
+      const answer = cleanAIText(data.choices?.[0]?.message?.content);
       if (!answer) throw new Error('AI 返回内容为空');
       setChatState(previous => ({ ...previous, conversations: previous.conversations.map(item => item.id === conversationId ? { ...item, updatedAt: new Date().toISOString(), messages: [...item.messages, { id: `${conversationId}-assistant-${Date.now()}`, role: 'assistant', content: answer }] } : item) }));
     } catch (error) {
@@ -258,7 +278,7 @@ const AIMedicationAdvisor = ({ isOpen, onClose, currentMedications = [], pageMod
               {hasConversation ? (
                 <><h2 className="advisor-page__chat-title">问小暖</h2><p>您的用药小助手</p></>
               ) : (
-                <><h2><span className="advisor-page__intro">您好，我是</span><span className="advisor-page__mascot-name"><img src={brandAsset('yaoxiaonuan-wordmark.png')} alt="药小暖" /></span></h2><p>陪您认药、查药，有疑问随时问我</p></>
+                <><h2><span className="advisor-page__intro">您好，我是</span><span className="advisor-page__mascot-name"><picture><source srcSet={brandAsset('yaoxiaonuan-wordmark.webp')} type="image/webp" /><img src={brandAsset('yaoxiaonuan-wordmark.png')} alt="药小暖" width="420" height="148" decoding="async" fetchPriority="high" /></picture></span></h2><p>陪您认药、查药，有疑问随时问我</p></>
               )}
             </div>
             <button type="button" className="advisor-page__mascot-button" onClick={replayMascot} disabled={reduceMotion || mascotVideoFailed} aria-label={reduceMotion || mascotVideoFailed ? '药小暖静态形象' : '重播药小暖动画'}>{reduceMotion || mascotVideoFailed ? <img src={brandAsset('yaoxiaonuan-wave-poster.jpg')} alt="" /> : <video ref={mascotVideoRef} autoPlay muted playsInline preload="auto" poster={brandAsset('yaoxiaonuan-wave-poster.jpg')} onError={() => setMascotVideoFailed(true)}><source src={brandAsset('yaoxiaonuan-wave.mp4')} type="video/mp4" /></video>}</button>
@@ -276,7 +296,7 @@ const AIMedicationAdvisor = ({ isOpen, onClose, currentMedications = [], pageMod
 
         <div className="advisor-page__conversation" ref={conversationRef} role="log" aria-label="与小暖的对话">
           {!hasConversation && <div className="advisor-page__welcome"><h3>试着问</h3><div className="advisor-page__suggestions">{suggestions.map(question => <button type="button" key={question} onClick={() => sendMessage(question)}>{question}</button>)}</div></div>}
-          {messages.map(message => <div key={message.id} className={`advisor-message-row ${message.role === 'user' ? 'is-user' : 'is-assistant'}`}>{message.role === 'assistant' && <XiaoNuan size="tiny" pose="smile" className="advisor-message-avatar" />}<div className="advisor-message"><p>{message.content}</p>{message.role === 'assistant' && <button type="button" onClick={() => toggleSpeaking(message)} aria-label={speakingId === message.id ? '停止播报回答' : '播报回答'}>{speakingId === message.id ? <VolumeX size={20} /> : <Volume2 size={20} />}</button>}</div></div>)}
+          {messages.map(message => <div key={message.id} className={`advisor-message-row ${message.role === 'user' ? 'is-user' : 'is-assistant'}`}>{message.role === 'assistant' && <XiaoNuan size="tiny" pose="smile" className="advisor-message-avatar" />}<div className="advisor-message"><p>{cleanAIText(message.content)}</p>{message.role === 'assistant' && <button type="button" onClick={() => toggleSpeaking(message)} aria-label={speakingId === message.id ? '停止播报回答' : '播报回答'}>{speakingId === message.id ? <VolumeX size={20} /> : <Volume2 size={20} />}</button>}</div></div>)}
           {isProcessing && <div className="advisor-message-row is-assistant"><div className="advisor-message advisor-message--thinking">小暖正在想…</div></div>}
         </div>
 
@@ -285,7 +305,7 @@ const AIMedicationAdvisor = ({ isOpen, onClose, currentMedications = [], pageMod
           {!hasConversation && <button type="button" className="advisor-composer__quick-select" onClick={() => setPickerOpen(true)}><Pill size={19} />选择药品</button>}
           <form className="advisor-composer__row" onSubmit={event => { event.preventDefault(); sendMessage(inputText); }}>
             <button type="button" onClick={toggleListening} className={`advisor-composer__voice ${isListening ? 'is-listening' : ''}`} aria-label={isListening ? '停止语音输入' : '语音提问'}>{isListening ? <MicOff size={25} /> : <Mic size={25} />}</button>
-            <input type="text" value={inputText} onChange={event => setInputText(event.target.value)} placeholder={isListening ? '正在听您说话…' : '输入用药问题'} className="advisor-composer__input" aria-label="输入用药问题" />
+            <input ref={inputRef} type="text" value={inputText} onChange={event => setInputText(event.target.value)} placeholder={isListening ? '正在听您说话…' : '输入用药问题'} className="advisor-composer__input" aria-label="输入用药问题" enterKeyHint="send" autoComplete="off" />
             <button type="submit" disabled={!inputText.trim() || isProcessing} className="advisor-composer__send" aria-label="发送问题"><Send size={24} /></button>
           </form>
           <div className="advisor-composer__footer">{selectedMedication && <div className="advisor-composer__selected"><Pill size={17} /><span>已选药品：{selectedMedication.name}</span><button type="button" onClick={() => setSelectedMedication(null)} aria-label="取消选药"><X size={18} /></button></div>}<p className="advisor-composer__hint">回答仅供参考，用药请遵医嘱。</p></div>
@@ -306,7 +326,7 @@ const AIMedicationAdvisor = ({ isOpen, onClose, currentMedications = [], pageMod
           </aside>
         </div>}
       </div>
-      {scannerOpen && <MedicineScanner isOpen pageMode backLabel="返回问小暖" onClose={() => setScannerOpen(false)} onSelectMedicine={medicine => { setSelectedMedication(medicine); setScannerOpen(false); }} />}
+      {scannerOpen && <MedicineScanner isOpen pageMode overlayMode backLabel="返回问小暖" onClose={() => setScannerOpen(false)} onSelectMedicine={medicine => { setSelectedMedication(medicine); setScannerOpen(false); }} />}
     </div>
   );
 };
